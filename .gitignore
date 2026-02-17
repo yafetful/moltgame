@@ -1,0 +1,80 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+backend/bin/
+backend/tmp/
+backend/api-gateway
+backend/ws-gateway
+*.exe
+*.test
+*.out
+coverage.out
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+
+# Skills (installed per-machine via npx skills)
+# Keep skills/skill.md but ignore all symlinks
+skills/*
+!skills/skill.md
+.agents/
+.adal/
+.agent/
+.amp/
+.antigravity/
+.augment/
+.claude/
+.cline/
+.codebuddy/
+.codex/
+.commandcode/
+.continue/
+.crush/
+.cursor/
+.editorconfig/
+.factory/
+.gemini/
+.github/copilot/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kimi/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openclaw/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/

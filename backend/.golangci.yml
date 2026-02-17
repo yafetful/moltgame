@@ -1,0 +1,29 @@
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - misspell
+    - gofumpt
+    - revive
+    - gosec
+    - unconvert
+    - gocritic
+  settings:
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+formatters:
+  enable:
+    - gofumpt
+run:
+  timeout: 5m
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5

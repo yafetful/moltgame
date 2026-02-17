@@ -1,0 +1,174 @@
+version: "3"
+
+vars:
+  BACKEND_DIR: ./backend
+  FRONTEND_DIR: ./frontend
+
+tasks:
+  # ─── Development ───────────────────────────────
+  dev:
+    desc: Start all services for development
+    deps: [dev:infra]
+    cmds:
+      - echo "Infrastructure ready. Run 'task dev:api' and 'task dev:front' in separate terminals."
+
+  dev:infra:
+    desc: Start Docker infrastructure (PostgreSQL, Redis, NATS)
+    cmds:
+      - docker compose up -d
+
+  dev:api:
+    desc: Run API Gateway with hot reload
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go run ./cmd/api-gateway
+
+  dev:ws:
+    desc: Run WS Gateway
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go run ./cmd/ws-gateway
+
+  dev:poker:
+    desc: Run Poker Engine
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go run ./cmd/poker-engine
+
+  dev:werewolf:
+    desc: Run Werewolf Engine
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go run ./cmd/werewolf-engine
+
+  dev:front:
+    desc: Run Next.js dev server
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run dev
+
+  # ─── Build ─────────────────────────────────────
+  build:
+    desc: Build all services
+    deps: [build:api, build:ws, build:poker, build:werewolf, build:front]
+
+  build:api:
+    desc: Build API Gateway
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go build -o bin/api-gateway ./cmd/api-gateway
+
+  build:ws:
+    desc: Build WS Gateway
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go build -o bin/ws-gateway ./cmd/ws-gateway
+
+  build:poker:
+    desc: Build Poker Engine
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go build -o bin/poker-engine ./cmd/poker-engine
+
+  build:werewolf:
+    desc: Build Werewolf Engine
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go build -o bin/werewolf-engine ./cmd/werewolf-engine
+
+  build:front:
+    desc: Build Next.js for production
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run build
+
+  # ─── Test ──────────────────────────────────────
+  test:
+    desc: Run all tests
+    deps: [test:back, test:front]
+
+  test:back:
+    desc: Run Go tests
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go test -race -cover ./...
+
+  test:front:
+    desc: Run frontend type check
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npx tsc --noEmit
+
+  # ─── Lint ──────────────────────────────────────
+  lint:
+    desc: Lint all code
+    deps: [lint:back, lint:front]
+
+  lint:back:
+    desc: Lint Go code
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - golangci-lint run ./...
+
+  lint:front:
+    desc: Lint frontend code
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npx eslint .
+
+  # ─── Format ────────────────────────────────────
+  fmt:
+    desc: Format all code
+    deps: [fmt:back]
+
+  fmt:back:
+    desc: Format Go code
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - gofumpt -w .
+
+  # ─── Database ──────────────────────────────────
+  db:migrate:
+    desc: Run database migrations
+    cmds:
+      - docker exec moltgame-postgres psql -U moltgame -d moltgame -f /docker-entrypoint-initdb.d/001_initial_schema.sql
+
+  db:reset:
+    desc: Reset database (drop and recreate)
+    cmds:
+      - docker compose down -v
+      - docker compose up -d
+      - sleep 3
+      - task db:migrate
+
+  # ─── E2E ──────────────────────────────────────
+  test:e2e:
+    desc: Run E2E integration tests (requires running infrastructure)
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go test -tags=e2e -v -timeout 5m ./tests/e2e/
+
+  # ─── Simulate ────────────────────────────────
+  simulate:poker:
+    desc: Run poker simulation with 6 bots
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go run ./cmd/simulate --game=poker
+
+  simulate:werewolf:
+    desc: Run werewolf simulation with 5 bots
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - go run ./cmd/simulate --game=werewolf
+
+  # ─── Clean ─────────────────────────────────────
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.BACKEND_DIR}}/bin
+      - rm -rf {{.FRONTEND_DIR}}/.next
+
+  down:
+    desc: Stop all Docker services
+    cmds:
+      - docker compose down
