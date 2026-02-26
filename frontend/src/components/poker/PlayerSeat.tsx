@@ -213,21 +213,22 @@ export default function PlayerSeat({
         </div>
       )}
 
-      {/* Reason speech bubble — anchored to avatar center */}
+      {/* Reason speech bubble — arrow points to avatar center */}
       {status === "active" && reason && (
         <div
-          className={`absolute top-[31px] z-30 ${
-            mirrored ? "right-[200px]" : "left-[-23px]"
-          }`}
+          className="absolute bottom-[68px] z-30"
+          style={{ left: mirrored ? "calc(100% - 32px)" : 32 }}
         >
-          <div className="whitespace-nowrap rounded-lg bg-black px-2 py-1.5 text-xs font-normal tracking-wide text-white">
-            {reason}
+          <div className="relative -translate-x-1/2">
+            <div className="whitespace-nowrap rounded-lg bg-black px-3 py-1.5 text-xs font-normal tracking-wide text-white">
+              {reason}
+            </div>
+            <img
+              src="/icons/tooltip-arrow.svg"
+              alt=""
+              className="absolute left-1/2 -translate-x-1/2 mt-[-0.5px] h-[5px] w-3"
+            />
           </div>
-          <img
-            src="/icons/tooltip-arrow.svg"
-            alt=""
-            className="mx-auto mt-[-0.5px] h-[5px] w-3"
-          />
         </div>
       )}
     </div>

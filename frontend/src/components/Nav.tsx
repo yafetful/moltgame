@@ -58,7 +58,7 @@ export default function Nav({ variant = "center" }: { variant?: "center" | "logo
 
   if (variant === "logo") {
     return (
-      <nav className="mb-8 flex h-20 items-center justify-between px-8 pt-4">
+      <nav className="relative mb-8 flex h-20 items-center justify-between px-8 pt-4">
         <Link href="/" className="shrink-0">
           <Image
             src="/logo/logo-horizontal.png"
@@ -69,7 +69,7 @@ export default function Nav({ variant = "center" }: { variant?: "center" | "logo
             priority
           />
         </Link>
-        <div className="absolute inset-x-0 top-0 flex justify-center pointer-events-none">
+        <div className="absolute inset-x-0 top-0 bottom-0 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto">{links}</div>
         </div>
         <div className="shrink-0">
