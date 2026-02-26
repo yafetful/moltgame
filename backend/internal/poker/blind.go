@@ -13,18 +13,16 @@ type BlindSchedule struct {
 }
 
 // DefaultSchedule is the standard blind schedule for tournaments.
-// Blinds escalate every 10 hands.
+// Blinds escalate every 6 hands (one full dealer orbit for 6 players), doubling each level.
 var DefaultSchedule = &BlindSchedule{
-	HandsPerLevel: 10,
+	HandsPerLevel: 6,
 	Levels: []BlindLevel{
-		{10, 20},   // Level 1: hands 1-10
-		{20, 40},   // Level 2: hands 11-20
-		{30, 60},   // Level 3: hands 21-30
-		{50, 100},  // Level 4: hands 31-40
-		{100, 200}, // Level 5: hands 41-50
-		{150, 300}, // Level 6: hands 51-60
-		{200, 400}, // Level 7: hands 61-70
-		{300, 600}, // Level 8+: hands 71+
+		{40, 80},     // Level 1: hands 1-6
+		{80, 160},    // Level 2: hands 7-12
+		{160, 320},   // Level 3: hands 13-18
+		{320, 640},   // Level 4: hands 19-24
+		{640, 1280},  // Level 5: hands 25-30
+		{1280, 2560}, // Level 6+: hands 31+
 	},
 }
 

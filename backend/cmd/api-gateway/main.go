@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,7 +18,7 @@ import (
 	gameRepo "github.com/moltgame/backend/internal/game"
 	"github.com/moltgame/backend/internal/matchmaking"
 	"github.com/moltgame/backend/internal/models"
-	"github.com/moltgame/backend/internal/room"
+	natsClient "github.com/moltgame/backend/internal/nats"
 	"github.com/moltgame/backend/internal/twitter"
 	"github.com/moltgame/backend/pkg/config"
 	"github.com/moltgame/backend/pkg/database"
@@ -46,13 +47,20 @@ func main() {
 	}
 	defer rdb.Close()
 
+	// Connect to NATS
+	nc, err := natsClient.Connect(cfg.NATSAddr)
+	if err != nil {
+		slog.Error("failed to connect to nats", "error", err)
+		os.Exit(1)
+	}
+	defer nc.Close()
+
 	// Initialize repositories
 	agentRepo := auth.NewAgentRepository(db)
 	chakraRepo := chakra.NewRepository(db)
 	gameRepository := gameRepo.NewRepository(db)
 
 	// Initialize services
-	rooms := room.NewManager()
 	settlement := gameRepo.NewSettlementService(gameRepository, chakraRepo)
 	sessions := auth.NewSessionManager(cfg.JWTSecret)
 
@@ -67,8 +75,20 @@ func main() {
 		cfg.TwitterAccessTokenSecret,
 	)
 
-	// Matchmaking callback: when a match is formed, create the game room
-	matchSvc := matchmaking.NewService(nil, func(ctx context.Context, gameType models.GameType, players []*matchmaking.QueueEntry) error {
+	// Build game proxy and subscribe to game-over events
+	gameProxy := api.NewGameProxyHandler(nc, gameRepository, settlement)
+	if err := gameProxy.SubscribeGameOver(ctx); err != nil {
+		slog.Error("failed to subscribe game over events", "error", err)
+		os.Exit(1)
+	}
+
+	// Matchmaking callback: when a match is formed, create the game via NATS
+	matchSvc := matchmaking.NewService(nc, func(ctx context.Context, gameType models.GameType, players []*matchmaking.QueueEntry) error {
+		if gameType != models.GameTypePoker {
+			slog.Warn("unsupported game type for matchmaking", "type", gameType)
+			return nil
+		}
+
 		playerIDs := make([]string, len(players))
 		for i, p := range players {
 			playerIDs[i] = p.AgentID
@@ -81,15 +101,23 @@ func main() {
 			return err
 		}
 
-		// Create in-memory room
+		// Create room via NATS
 		seed := cryptoSeed()
-		switch gameType {
-		case models.GameTypePoker:
-			_, err = rooms.CreatePokerRoom(dbGame.ID, playerIDs, seed)
-		case models.GameTypeWerewolf:
-			_, _, err = rooms.CreateWerewolfRoom(dbGame.ID, playerIDs, seed)
+		var resp natsClient.CreateRoomResponse
+		err = nc.RequestJSON(natsClient.SubjectPokerRoomCreate, natsClient.CreateRoomRequest{
+			GameID:    dbGame.ID,
+			PlayerIDs: playerIDs,
+			Seed:      seed,
+			EntryFee:  matchmaking.DefaultConfigs[models.GameTypePoker].EntryFee,
+		}, &resp, 3*time.Second)
+		if err != nil {
+			return err
 		}
-		return err
+		if !resp.Success {
+			return fmt.Errorf("poker engine: %s", resp.Error)
+		}
+
+		return nil
 	})
 
 	// Start matchmaking loop
@@ -107,7 +135,7 @@ func main() {
 		AgentRepo:     agentRepo,
 		ChakraRepo:    chakraRepo,
 		GameRepo:      gameRepository,
-		Rooms:         rooms,
+		NATS:          nc,
 		Settlement:    settlement,
 		MatchSvc:      matchSvc,
 		TwitterClient: twitterClient,
@@ -118,8 +146,8 @@ func main() {
 		Addr:         ":" + cfg.APIPort,
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: 70 * time.Second, // supports 60s long-polling + buffer
+		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {

@@ -8,24 +8,22 @@ import (
 
 	"github.com/moltgame/backend/internal/auth"
 	natsClient "github.com/moltgame/backend/internal/nats"
-	"github.com/moltgame/backend/internal/room"
 	"github.com/nats-io/nats.go"
 	"nhooyr.io/websocket"
 )
 
 // Server handles WebSocket connections.
+// All game state is fetched from poker-engine via NATS (no direct room.Manager dependency).
 type Server struct {
 	hub       *Hub
-	rooms     *room.Manager
 	nats      *natsClient.Client
 	agentRepo auth.AgentFinder
 }
 
 // NewServer creates a new WebSocket server.
-func NewServer(hub *Hub, rooms *room.Manager, nc *natsClient.Client, agentRepo auth.AgentFinder) *Server {
+func NewServer(hub *Hub, nc *natsClient.Client, agentRepo auth.AgentFinder) *Server {
 	return &Server{
 		hub:       hub,
-		rooms:     rooms,
 		nats:      nc,
 		agentRepo: agentRepo,
 	}
@@ -50,14 +48,13 @@ func (s *Server) HandleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify agent is in this game
-	rm := s.rooms.GetRoom(gameID)
-	if rm == nil {
-		http.Error(w, "game not found", http.StatusNotFound)
-		return
-	}
-	if !rm.HasPlayer(agentID) {
-		http.Error(w, "not in this game", http.StatusForbidden)
+	// Fetch initial state from poker-engine via NATS to verify game exists and agent is in it
+	var stateResp natsClient.StateResponse
+	err = s.nats.RequestJSON(natsClient.SubjectPokerRoomState(gameID), natsClient.StateRequest{
+		AgentID: agentID,
+	}, &stateResp, 3*1e9) // 3 seconds
+	if err != nil || !stateResp.Success {
+		http.Error(w, "game not found or not in game", http.StatusNotFound)
 		return
 	}
 
@@ -74,15 +71,15 @@ func (s *Server) HandleAgent(w http.ResponseWriter, r *http.Request) {
 	s.hub.RegisterAgent(gameID, agentID, conn)
 	defer s.hub.Unregister(conn)
 
-	// Send current game state immediately (reconnect support)
-	s.sendCurrentState(conn, rm, agentID)
+	// Send current game state immediately
+	s.sendMsg(conn, OutgoingMsg{Type: "state", GameID: gameID, Payload: json.RawMessage(stateResp.State)})
 
 	// Start write pump in background
 	go conn.WritePump()
 
 	// Read pump (blocks until connection closes)
 	conn.ReadPump(func(data []byte) {
-		s.handleAgentMessage(conn, rm, data)
+		s.handleAgentMessage(conn, data)
 	})
 }
 
@@ -95,8 +92,10 @@ func (s *Server) HandleSpectator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm := s.rooms.GetRoom(gameID)
-	if rm == nil {
+	// Fetch spectator state from poker-engine via NATS
+	var stateResp natsClient.StateResponse
+	err := s.nats.RequestJSON(natsClient.SubjectPokerRoomSpectate(gameID), struct{}{}, &stateResp, 3*1e9)
+	if err != nil || !stateResp.Success {
 		http.Error(w, "game not found", http.StatusNotFound)
 		return
 	}
@@ -114,10 +113,7 @@ func (s *Server) HandleSpectator(w http.ResponseWriter, r *http.Request) {
 	defer s.hub.Unregister(conn)
 
 	// Send current spectator state
-	state, err := rm.GetSpectatorState()
-	if err == nil {
-		s.sendMsg(conn, OutgoingMsg{Type: "state", GameID: gameID, Payload: state})
-	}
+	s.sendMsg(conn, OutgoingMsg{Type: "state", GameID: gameID, Payload: json.RawMessage(stateResp.State)})
 
 	go conn.WritePump()
 
@@ -129,16 +125,7 @@ func (s *Server) HandleSpectator(w http.ResponseWriter, r *http.Request) {
 
 // --- Internal helpers ---
 
-func (s *Server) sendCurrentState(conn *Conn, rm *room.Room, agentID string) {
-	state, err := rm.GetState(agentID)
-	if err != nil {
-		s.sendMsg(conn, OutgoingMsg{Type: "error", Error: err.Error()})
-		return
-	}
-	s.sendMsg(conn, OutgoingMsg{Type: "state", GameID: rm.GameID, Payload: state})
-}
-
-func (s *Server) handleAgentMessage(conn *Conn, rm *room.Room, data []byte) {
+func (s *Server) handleAgentMessage(conn *Conn, data []byte) {
 	var msg IncomingMsg
 	if err := json.Unmarshal(data, &msg); err != nil {
 		s.sendMsg(conn, OutgoingMsg{Type: "error", Error: "invalid message format"})
@@ -147,7 +134,7 @@ func (s *Server) handleAgentMessage(conn *Conn, rm *room.Room, data []byte) {
 
 	switch msg.Type {
 	case "action":
-		s.handleAction(conn, rm, msg.Action)
+		s.handleAction(conn, msg.Action)
 	case "ping":
 		s.sendMsg(conn, OutgoingMsg{Type: "pong"})
 	default:
@@ -155,66 +142,26 @@ func (s *Server) handleAgentMessage(conn *Conn, rm *room.Room, data []byte) {
 	}
 }
 
-func (s *Server) handleAction(conn *Conn, rm *room.Room, actionJSON json.RawMessage) {
-	result, err := rm.SubmitAction(conn.AgentID, actionJSON)
+func (s *Server) handleAction(conn *Conn, actionJSON json.RawMessage) {
+	// Forward action to poker-engine via NATS
+	var resp natsClient.ActionResponse
+	err := s.nats.RequestJSON(natsClient.SubjectPokerRoomAction(conn.GameID), natsClient.ActionRequest{
+		AgentID: conn.AgentID,
+		Action:  actionJSON,
+	}, &resp, 3*1e9)
 	if err != nil {
-		s.sendMsg(conn, OutgoingMsg{Type: "error", Error: err.Error()})
+		s.sendMsg(conn, OutgoingMsg{Type: "error", Error: "engine unavailable"})
+		return
+	}
+	if !resp.Success {
+		s.sendMsg(conn, OutgoingMsg{Type: "error", Error: resp.Error})
 		return
 	}
 
-	// Broadcast event to all room connections
-	eventMsg, _ := json.Marshal(OutgoingMsg{
-		Type:    "event",
-		GameID:  rm.GameID,
-		Payload: result.Events,
-	})
-	s.hub.BroadcastToRoom(rm.GameID, eventMsg)
-
-	// Send personalized state to each agent in the room
-	for _, pid := range rm.PlayerIDs {
-		state, err := rm.GetState(pid)
-		if err != nil {
-			continue
-		}
-		stateMsg, _ := json.Marshal(OutgoingMsg{
-			Type:    "state",
-			GameID:  rm.GameID,
-			Payload: state,
-		})
-		s.hub.SendToAgent(pid, stateMsg)
-	}
-
-	// Broadcast spectator state
-	specState, err := rm.GetSpectatorState()
-	if err == nil {
-		specMsg, _ := json.Marshal(OutgoingMsg{
-			Type:    "state",
-			GameID:  rm.GameID,
-			Payload: specState,
-		})
-		s.hub.BroadcastToSpectators(rm.GameID, specMsg)
-	}
-
-	// Publish to NATS for external consumers
-	if s.nats != nil {
-		s.nats.PublishJSON(
-			natsClient.SubjectGameEvent(string(rm.GameType), rm.GameID),
-			result.Events,
-		)
-	}
-
-	// Notify next actor
-	if result.NextActor != "" {
-		state, err := rm.GetState(result.NextActor)
-		if err == nil {
-			turnMsg, _ := json.Marshal(OutgoingMsg{
-				Type:    "your_turn",
-				GameID:  rm.GameID,
-				Payload: state,
-			})
-			s.hub.SendToAgent(result.NextActor, turnMsg)
-		}
-	}
+	// The poker-engine broadcasts events/state via NATS;
+	// SubscribeNATSEvents picks those up and sends to WebSocket clients.
+	// We also send the action response directly to the acting agent.
+	s.sendMsg(conn, OutgoingMsg{Type: "action_result", GameID: conn.GameID, Payload: resp})
 }
 
 func (s *Server) sendMsg(conn *Conn, msg OutgoingMsg) {
@@ -225,34 +172,102 @@ func (s *Server) sendMsg(conn *Conn, msg OutgoingMsg) {
 	conn.Send(data)
 }
 
-// SubscribeNATSEvents subscribes to NATS for match notifications and routes them to WebSocket.
+// SubscribeNATSEvents subscribes to NATS for game state broadcasts and routes them to WebSocket.
 func (s *Server) SubscribeNATSEvents(ctx context.Context) error {
 	if s.nats == nil {
 		return nil
 	}
 
-	// Subscribe to match_found events for all game types
-	for _, gameType := range []string{"poker", "werewolf"} {
-		subject := natsClient.SubjectMatchmaking(gameType)
-		_, err := s.nats.Subscribe(subject, func(msg *nats.Msg) {
-			var matchMsg natsClient.MatchFoundMsg
-			if err := json.Unmarshal(msg.Data, &matchMsg); err != nil {
-				return
-			}
-			// Notify each matched agent
-			for _, agentID := range matchMsg.PlayerIDs {
-				notifyData, _ := json.Marshal(OutgoingMsg{
-					Type:    "match_found",
-					GameID:  matchMsg.GameID,
-					Payload: matchMsg,
-				})
-				s.hub.SendToAgent(agentID, notifyData)
-			}
-		})
-		if err != nil {
-			return err
+	// Subscribe to per-agent state updates: poker.state.{roomID}.{agentID}
+	_, err := s.nats.Subscribe("poker.state.>", func(msg *nats.Msg) {
+		parts := splitSubject(msg.Subject)
+		// poker.state.{roomID}.{agentID}
+		if len(parts) < 4 {
+			return
 		}
+		roomID := parts[2]
+		agentID := parts[3]
+
+		stateMsg, _ := json.Marshal(OutgoingMsg{
+			Type:    "state",
+			GameID:  roomID,
+			Payload: json.RawMessage(msg.Data),
+		})
+		s.hub.SendToAgent(agentID, stateMsg)
+	})
+	if err != nil {
+		return err
+	}
+
+	// Subscribe to spectator broadcasts: poker.spectate.{roomID}
+	_, err = s.nats.Subscribe("poker.spectate.>", func(msg *nats.Msg) {
+		parts := splitSubject(msg.Subject)
+		if len(parts) < 3 {
+			return
+		}
+		roomID := parts[2]
+
+		specMsg, _ := json.Marshal(OutgoingMsg{
+			Type:    "state",
+			GameID:  roomID,
+			Payload: json.RawMessage(msg.Data),
+		})
+		s.hub.BroadcastToSpectators(roomID, specMsg)
+	})
+	if err != nil {
+		return err
+	}
+
+	// Subscribe to game events: poker.event.{roomID}
+	_, err = s.nats.Subscribe("poker.event.>", func(msg *nats.Msg) {
+		parts := splitSubject(msg.Subject)
+		if len(parts) < 3 {
+			return
+		}
+		roomID := parts[2]
+
+		eventMsg, _ := json.Marshal(OutgoingMsg{
+			Type:    "event",
+			GameID:  roomID,
+			Payload: json.RawMessage(msg.Data),
+		})
+		s.hub.BroadcastToRoom(roomID, eventMsg)
+	})
+	if err != nil {
+		return err
+	}
+
+	// Subscribe to match_found events
+	_, err = s.nats.Subscribe(natsClient.SubjectMatchmaking("poker"), func(msg *nats.Msg) {
+		var matchMsg natsClient.MatchFoundMsg
+		if err := json.Unmarshal(msg.Data, &matchMsg); err != nil {
+			return
+		}
+		for _, agentID := range matchMsg.PlayerIDs {
+			notifyData, _ := json.Marshal(OutgoingMsg{
+				Type:    "match_found",
+				GameID:  matchMsg.GameID,
+				Payload: matchMsg,
+			})
+			s.hub.SendToAgent(agentID, notifyData)
+		}
+	})
+	if err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func splitSubject(s string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }

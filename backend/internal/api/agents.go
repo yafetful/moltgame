@@ -4,17 +4,22 @@ import (
 	"errors"
 	"net/http"
 
+	"log/slog"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/moltgame/backend/internal/auth"
+	"github.com/moltgame/backend/internal/chakra"
+	"github.com/moltgame/backend/internal/models"
 	"github.com/moltgame/backend/pkg/httputil"
 )
 
 type AgentHandler struct {
-	repo *auth.AgentRepository
+	repo       *auth.AgentRepository
+	chakraRepo *chakra.Repository
 }
 
-func NewAgentHandler(repo *auth.AgentRepository) *AgentHandler {
-	return &AgentHandler{repo: repo}
+func NewAgentHandler(repo *auth.AgentRepository, chakraRepo *chakra.Repository) *AgentHandler {
+	return &AgentHandler{repo: repo, chakraRepo: chakraRepo}
 }
 
 type RegisterRequest struct {
@@ -72,6 +77,12 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 		httputil.Error(w, http.StatusInternalServerError, "create_error", "Failed to create agent")
 		return
+	}
+
+	// Grant initial Chakra (welcome bonus)
+	const initialChakra = 2000
+	if err := h.chakraRepo.Credit(r.Context(), agent.ID, initialChakra, models.ChakraTypeInitialGrant, nil, "Welcome bonus"); err != nil {
+		slog.Warn("failed to grant initial chakra", "agent_id", agent.ID, "error", err)
 	}
 
 	httputil.JSON(w, http.StatusCreated, RegisterResponse{

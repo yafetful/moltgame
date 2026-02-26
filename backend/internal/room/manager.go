@@ -9,10 +9,12 @@ import (
 
 	"github.com/moltgame/backend/internal/models"
 	"github.com/moltgame/backend/internal/poker"
-	"github.com/moltgame/backend/internal/werewolf"
 )
 
-const turnTimeout = 30 * time.Second
+const (
+	turnTimeout          = 30 * time.Second
+	disconnectThreshold  = 3 // consecutive timeouts before marking disconnected
+)
 
 // Room wraps an active game instance.
 type Room struct {
@@ -26,15 +28,18 @@ type Room struct {
 	StartedAt *time.Time
 
 	// Accumulated events for persistence (Event Sourcing)
-	Events []models.GameEvent
+	Events       []models.GameEvent
+	flushedCount int // number of events already persisted to DB
 
-	// Exactly one of these is non-nil
+	// Poker game instance (only non-nil for poker rooms)
 	Poker    *poker.Game
-	Werewolf *werewolf.Game
+	EntryFee int // entry fee for settlement
 
 	// Turn timer: auto-submits default action on timeout
-	turnTimer  *time.Timer
-	OnGameOver func(gameID string, room *Room) // called when game ends (including by timeout)
+	turnTimer     *time.Timer
+	OnGameOver    func(gameID string, room *Room)         // called when game ends (including by timeout)
+	OnFlushEvents func(gameID string, room *Room)         // called after events are accumulated to persist them
+	OnTurnNotify  func(gameID string, agentID string)     // called to notify next actor it's their turn
 }
 
 // Manager manages all active game rooms in memory.
@@ -44,7 +49,9 @@ type Manager struct {
 
 	// OnGameOver is called when a game ends due to timeout.
 	// For normal actions, the API layer handles settlement directly.
-	OnGameOver func(gameID string, room *Room)
+	OnGameOver    func(gameID string, room *Room)
+	OnFlushEvents func(gameID string, room *Room)
+	OnTurnNotify  func(gameID string, agentID string)
 }
 
 // NewManager creates a new room manager.
@@ -55,7 +62,7 @@ func NewManager() *Manager {
 }
 
 // CreatePokerRoom creates a new poker game room.
-func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64) (*Room, error) {
+func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64, entryFee int) (*Room, error) {
 	g := poker.NewGame(gameID, playerIDs, seed)
 
 	room := &Room{
@@ -63,12 +70,15 @@ func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64)
 		GameType:  models.GameTypePoker,
 		Status:    models.GameStatusPlaying,
 		PlayerIDs: playerIDs,
+		EntryFee:  entryFee,
 		CreatedAt: time.Now(),
 	}
 	now := time.Now()
 	room.StartedAt = &now
 	room.Poker = g
 	room.OnGameOver = m.OnGameOver
+	room.OnFlushEvents = m.OnFlushEvents
+	room.OnTurnNotify = m.OnTurnNotify
 
 	// Start the first hand
 	g.StartHand()
@@ -81,40 +91,6 @@ func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64)
 	room.ResetTurnTimer()
 
 	return room, nil
-}
-
-// CreateWerewolfRoom creates a new werewolf game room.
-func (m *Manager) CreateWerewolfRoom(gameID string, playerIDs []string, seed int64) (*Room, []werewolf.Event, error) {
-	g, err := werewolf.NewGame(gameID, playerIDs, seed)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create werewolf game: %w", err)
-	}
-
-	events, err := g.Start()
-	if err != nil {
-		return nil, nil, fmt.Errorf("start werewolf game: %w", err)
-	}
-
-	room := &Room{
-		GameID:    gameID,
-		GameType:  models.GameTypeWerewolf,
-		Status:    models.GameStatusPlaying,
-		PlayerIDs: playerIDs,
-		CreatedAt: time.Now(),
-	}
-	now := time.Now()
-	room.StartedAt = &now
-	room.Werewolf = g
-	room.OnGameOver = m.OnGameOver
-
-	m.mu.Lock()
-	m.rooms[gameID] = room
-	m.mu.Unlock()
-
-	// Start turn timer for the first actor
-	room.ResetTurnTimer()
-
-	return room, events, nil
 }
 
 // GetRoom returns a room by game ID.
@@ -152,10 +128,6 @@ func (m *Manager) ListActiveGames() []ActiveGameInfo {
 			info.Phase = room.Poker.Phase.String()
 			info.HandNum = room.Poker.HandNum
 		}
-		if room.Werewolf != nil {
-			info.Phase = room.Werewolf.Phase.String()
-			info.Day = room.Werewolf.Day
-		}
 		room.mu.RUnlock()
 		result = append(result, info)
 	}
@@ -169,7 +141,6 @@ type ActiveGameInfo struct {
 	PlayerCount int             `json:"player_count"`
 	Phase       string          `json:"phase"`
 	HandNum     int             `json:"hand_num,omitempty"`
-	Day         int             `json:"day,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
@@ -178,18 +149,11 @@ func (r *Room) SubmitAction(playerID string, actionJSON json.RawMessage) (*Actio
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	var result *ActionResult
-	var err error
-
-	switch r.GameType {
-	case models.GameTypePoker:
-		result, err = r.submitPokerAction(playerID, actionJSON)
-	case models.GameTypeWerewolf:
-		result, err = r.submitWerewolfAction(playerID, actionJSON)
-	default:
-		return nil, fmt.Errorf("unknown game type: %s", r.GameType)
+	if r.GameType != models.GameTypePoker {
+		return nil, fmt.Errorf("unsupported game type: %s", r.GameType)
 	}
 
+	result, err := r.submitPokerAction(playerID, actionJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -209,20 +173,10 @@ func (r *Room) GetState(playerID string) (interface{}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	switch r.GameType {
-	case models.GameTypePoker:
-		if r.Poker == nil {
-			return nil, fmt.Errorf("game not initialized")
-		}
-		return r.Poker.GetGameState(playerID), nil
-	case models.GameTypeWerewolf:
-		if r.Werewolf == nil {
-			return nil, fmt.Errorf("game not initialized")
-		}
-		return r.Werewolf.GetGameState(playerID), nil
-	default:
-		return nil, fmt.Errorf("unknown game type: %s", r.GameType)
+	if r.Poker == nil {
+		return nil, fmt.Errorf("game not initialized")
 	}
+	return r.Poker.GetGameState(playerID), nil
 }
 
 // GetSpectatorState returns the god-view state.
@@ -230,41 +184,24 @@ func (r *Room) GetSpectatorState() (interface{}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	switch r.GameType {
-	case models.GameTypePoker:
-		if r.Poker == nil {
-			return nil, fmt.Errorf("game not initialized")
-		}
-		return r.Poker.GetSpectatorState(), nil
-	case models.GameTypeWerewolf:
-		if r.Werewolf == nil {
-			return nil, fmt.Errorf("game not initialized")
-		}
-		return r.Werewolf.GetSpectatorState(), nil
-	default:
-		return nil, fmt.Errorf("unknown game type: %s", r.GameType)
+	if r.Poker == nil {
+		return nil, fmt.Errorf("game not initialized")
 	}
+	return r.Poker.GetSpectatorState(), nil
 }
 
 // IsFinished returns whether the game has ended.
 func (r *Room) IsFinished() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	switch r.GameType {
-	case models.GameTypePoker:
-		return r.Poker != nil && r.Poker.Finished
-	case models.GameTypeWerewolf:
-		return r.Werewolf != nil && r.Werewolf.IsGameOver()
-	}
-	return false
+	return r.Poker != nil && r.Poker.Finished
 }
 
 // ActionResult contains the result of processing an action.
 type ActionResult struct {
-	Events     interface{} `json:"events,omitempty"`
-	GameOver   bool        `json:"game_over"`
-	NextActor  string      `json:"next_actor,omitempty"`
+	Events    interface{} `json:"events,omitempty"`
+	GameOver  bool        `json:"game_over"`
+	NextActor string      `json:"next_actor,omitempty"`
 }
 
 func (r *Room) submitPokerAction(playerID string, actionJSON json.RawMessage) (*ActionResult, error) {
@@ -286,23 +223,28 @@ func (r *Room) submitPokerAction(playerID string, actionJSON json.RawMessage) (*
 			SeqNum:    len(r.Events) + 1,
 			EventType: string(evt.Type),
 			Payload:   payload,
+			CreatedAt: time.Now(),
 		})
 	}
 
-	// Auto-start next hand if current hand ended but game isn't over
-	if r.Poker.Phase == poker.PhaseIdle && !r.Poker.Finished {
+	// Auto-start next hand if current hand ended but game isn't over.
+	// Loop because a new hand may resolve immediately (e.g., both players
+	// all-in from blinds), leaving the phase idle again.
+	for r.Poker.Phase == poker.PhaseIdle && !r.Poker.Finished {
 		nextEvents, startErr := r.Poker.StartHand()
-		if startErr == nil {
-			events = append(events, nextEvents...)
-			for _, evt := range nextEvents {
-				payload, _ := json.Marshal(evt.Data)
-				r.Events = append(r.Events, models.GameEvent{
-					GameID:    r.GameID,
-					SeqNum:    len(r.Events) + 1,
-					EventType: string(evt.Type),
-					Payload:   payload,
-				})
-			}
+		if startErr != nil {
+			break
+		}
+		events = append(events, nextEvents...)
+		for _, evt := range nextEvents {
+			payload, _ := json.Marshal(evt.Data)
+			r.Events = append(r.Events, models.GameEvent{
+				GameID:    r.GameID,
+				SeqNum:    len(r.Events) + 1,
+				EventType: string(evt.Type),
+				Payload:   payload,
+				CreatedAt: time.Now(),
+			})
 		}
 	}
 
@@ -322,44 +264,6 @@ func (r *Room) submitPokerAction(playerID string, actionJSON json.RawMessage) (*
 	return result, nil
 }
 
-func (r *Room) submitWerewolfAction(playerID string, actionJSON json.RawMessage) (*ActionResult, error) {
-	var action werewolf.Action
-	if err := json.Unmarshal(actionJSON, &action); err != nil {
-		return nil, fmt.Errorf("invalid action format: %w", err)
-	}
-
-	events, err := r.Werewolf.Act(playerID, action)
-	if err != nil {
-		return nil, err
-	}
-
-	// Accumulate events for persistence
-	for _, evt := range events {
-		payload, _ := json.Marshal(evt)
-		r.Events = append(r.Events, models.GameEvent{
-			GameID:    r.GameID,
-			SeqNum:    len(r.Events) + 1,
-			EventType: string(evt.Type),
-			Payload:   payload,
-		})
-	}
-
-	result := &ActionResult{
-		Events:   events,
-		GameOver: r.Werewolf.IsGameOver(),
-	}
-
-	if !r.Werewolf.IsGameOver() {
-		result.NextActor = r.Werewolf.CurrentActor()
-	}
-
-	if r.Werewolf.IsGameOver() {
-		r.Status = models.GameStatusFinished
-	}
-
-	return result, nil
-}
-
 // GetAccumulatedEvents returns a copy of all accumulated events.
 func (r *Room) GetAccumulatedEvents() []models.GameEvent {
 	r.mu.RLock()
@@ -369,26 +273,41 @@ func (r *Room) GetAccumulatedEvents() []models.GameEvent {
 	return evts
 }
 
+// DrainNewEvents returns events that haven't been flushed yet and advances the cursor.
+// Caller must hold r.mu (write lock) or call this while already locked.
+func (r *Room) DrainNewEvents() (startSeq int, events []models.GameEvent) {
+	if r.flushedCount >= len(r.Events) {
+		return r.flushedCount + 1, nil
+	}
+	startSeq = r.flushedCount + 1
+	events = make([]models.GameEvent, len(r.Events)-r.flushedCount)
+	copy(events, r.Events[r.flushedCount:])
+	r.flushedCount = len(r.Events)
+	return startSeq, events
+}
+
 // ResetTurnTimer resets the turn timer. Should be called after each action.
+// Disconnected players get an immediate timeout (no 30s wait).
 func (r *Room) ResetTurnTimer() {
 	if r.turnTimer != nil {
 		r.turnTimer.Stop()
 	}
 
-	// Check if any actor needs to act
-	var actor string
-	switch r.GameType {
-	case models.GameTypePoker:
-		if r.Poker != nil && !r.Poker.Finished {
-			actor = r.Poker.CurrentActor()
-		}
-	case models.GameTypeWerewolf:
-		if r.Werewolf != nil && !r.Werewolf.IsGameOver() {
-			actor = r.Werewolf.CurrentActor()
-		}
+	if r.Poker == nil || r.Poker.Finished {
+		return
 	}
 
+	actor := r.Poker.CurrentActor()
 	if actor == "" {
+		return
+	}
+
+	// Disconnected players: auto-fold immediately (short delay to avoid stack overflow)
+	p := r.Poker.PlayerByID(actor)
+	if p != nil && p.Disconnected {
+		r.turnTimer = time.AfterFunc(100*time.Millisecond, func() {
+			r.handleTimeout()
+		})
 		return
 	}
 
@@ -410,33 +329,6 @@ func (r *Room) handleTimeout() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	switch r.GameType {
-	case models.GameTypePoker:
-		r.handlePokerTimeout()
-	case models.GameTypeWerewolf:
-		r.handleWerewolfTimeout()
-	}
-
-	// Check if game ended due to timeout action
-	gameOver := false
-	switch r.GameType {
-	case models.GameTypePoker:
-		gameOver = r.Poker != nil && r.Poker.Finished
-	case models.GameTypeWerewolf:
-		gameOver = r.Werewolf != nil && r.Werewolf.IsGameOver()
-	}
-
-	if gameOver {
-		if r.OnGameOver != nil {
-			go r.OnGameOver(r.GameID, r)
-		}
-	} else {
-		// Reset timer for next actor
-		r.ResetTurnTimer()
-	}
-}
-
-func (r *Room) handlePokerTimeout() {
 	if r.Poker == nil || r.Poker.Finished {
 		return
 	}
@@ -446,64 +338,65 @@ func (r *Room) handlePokerTimeout() {
 		return
 	}
 
-	// Default action: check if possible, otherwise fold
-	action := poker.Action{Type: poker.ActionFold}
-	state := r.Poker.GetGameState(actor)
-	for _, opt := range state.ValidActions {
-		if opt.Type == poker.ActionCheck {
-			action = poker.Action{Type: poker.ActionCheck}
-			break
+	// Track consecutive timeouts for the player
+	p := r.Poker.PlayerByID(actor)
+	if p != nil {
+		p.TimeoutCount++
+		if p.TimeoutCount >= disconnectThreshold && !p.Disconnected {
+			p.Disconnected = true
+			slog.Warn("player disconnected", "game_id", r.GameID, "player", actor, "timeouts", p.TimeoutCount)
+			// Accumulate disconnect event
+			payload, _ := json.Marshal(poker.PlayerDisconnectedData{
+				Seat:     p.Seat,
+				PlayerID: p.ID,
+			})
+			r.Events = append(r.Events, models.GameEvent{
+				GameID:    r.GameID,
+				SeqNum:    len(r.Events) + 1,
+				EventType: string(poker.EventPlayerDisconnected),
+				Payload:   payload,
+				CreatedAt: time.Now(),
+			})
 		}
 	}
 
-	slog.Info("turn timeout", "game_id", r.GameID, "player", actor, "default_action", action.Type)
+	// Disconnected players always fold; others check if possible
+	action := poker.Action{Type: poker.ActionFold}
+	if p == nil || !p.Disconnected {
+		state := r.Poker.GetGameState(actor)
+		for _, opt := range state.ValidActions {
+			if opt.Type == poker.ActionCheck {
+				action = poker.Action{Type: poker.ActionCheck}
+				break
+			}
+		}
+	}
+
+	slog.Info("turn timeout", "game_id", r.GameID, "player", actor, "default_action", action.Type, "disconnected", p != nil && p.Disconnected)
 
 	_, err := r.submitPokerAction(actor, mustJSON(action))
 	if err != nil {
 		slog.Error("timeout action failed", "game_id", r.GameID, "error", err)
 	}
-}
 
-func (r *Room) handleWerewolfTimeout() {
-	if r.Werewolf == nil || r.Werewolf.IsGameOver() {
-		return
+	// Persist new events from timeout action
+	if r.OnFlushEvents != nil {
+		r.OnFlushEvents(r.GameID, r)
 	}
 
-	actor := r.Werewolf.CurrentActor()
-	if actor == "" {
-		return
-	}
-
-	// Default action depends on phase
-	var action werewolf.Action
-	switch r.Werewolf.Phase {
-	case werewolf.PhaseNight:
-		// Skip night action (wolf: random target, seer: random target)
-		targets := r.Werewolf.GetValidTargets(actor)
-		if len(targets) > 0 {
-			player := r.Werewolf.FindPlayer(actor)
-			if player != nil {
-				switch player.Role {
-				case werewolf.RoleWerewolf:
-					action = werewolf.Action{Type: werewolf.ActionKill, TargetID: targets[0]}
-				case werewolf.RoleSeer:
-					action = werewolf.Action{Type: werewolf.ActionInvestigate, TargetID: targets[0]}
-				}
+	// Check if game ended due to timeout action
+	if r.Poker.Finished {
+		if r.OnGameOver != nil {
+			go r.OnGameOver(r.GameID, r)
+		}
+	} else {
+		// Notify next actor it's their turn
+		if r.OnTurnNotify != nil {
+			if nextActor := r.Poker.CurrentActor(); nextActor != "" {
+				go r.OnTurnNotify(r.GameID, nextActor)
 			}
 		}
-	case werewolf.PhaseDay:
-		action = werewolf.Action{Type: werewolf.ActionSpeak, Message: "..."}
-	case werewolf.PhaseVote:
-		action = werewolf.Action{Type: werewolf.ActionSkipVote}
-	default:
-		return
-	}
-
-	slog.Info("turn timeout", "game_id", r.GameID, "player", actor, "default_action", action.Type)
-
-	_, err := r.submitWerewolfAction(actor, mustJSON(action))
-	if err != nil {
-		slog.Error("timeout action failed", "game_id", r.GameID, "error", err)
+		r.ResetTurnTimer()
 	}
 }
 

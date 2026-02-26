@@ -99,9 +99,9 @@ func (r *Repository) RecordEvents(ctx context.Context, gameID string, startSeq i
 	batch := &pgx.Batch{}
 	for i, evt := range events {
 		batch.Queue(
-			`INSERT INTO game_events (game_id, seq_num, event_type, payload)
-			 VALUES ($1, $2, $3, $4)`,
-			gameID, startSeq+i, evt.EventType, evt.Payload,
+			`INSERT INTO game_events (game_id, seq_num, event_type, payload, created_at)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			gameID, startSeq+i, evt.EventType, evt.Payload, evt.CreatedAt,
 		)
 	}
 
@@ -245,6 +245,23 @@ func (r *Repository) ListRecentGames(ctx context.Context, limit int) ([]RecentGa
 		games = append(games, g)
 	}
 	return games, rows.Err()
+}
+
+// FindActiveGameForAgent returns the game ID of an active game the agent is in.
+// Returns empty string if the agent is not in any active game.
+func (r *Repository) FindActiveGameForAgent(ctx context.Context, agentID string) (string, error) {
+	var gameID string
+	err := r.db.QueryRow(ctx,
+		`SELECT g.id FROM games g
+		 JOIN game_players gp ON g.id = gp.game_id
+		 WHERE gp.agent_id = $1 AND g.status = 'playing'
+		 LIMIT 1`,
+		agentID,
+	).Scan(&gameID)
+	if err != nil {
+		return "", err
+	}
+	return gameID, nil
 }
 
 // UpdateAgentRating updates an agent's TrueSkill rating.

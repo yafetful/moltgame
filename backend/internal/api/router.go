@@ -12,7 +12,7 @@ import (
 	"github.com/moltgame/backend/internal/chakra"
 	gameRepo "github.com/moltgame/backend/internal/game"
 	"github.com/moltgame/backend/internal/matchmaking"
-	"github.com/moltgame/backend/internal/room"
+	natsClient "github.com/moltgame/backend/internal/nats"
 	"github.com/moltgame/backend/internal/twitter"
 	"github.com/moltgame/backend/pkg/httputil"
 )
@@ -21,7 +21,7 @@ type RouterDeps struct {
 	AgentRepo     *auth.AgentRepository
 	ChakraRepo    *chakra.Repository
 	GameRepo      *gameRepo.Repository
-	Rooms         *room.Manager
+	NATS          *natsClient.Client
 	Settlement    *gameRepo.SettlementService
 	MatchSvc      *matchmaking.Service
 	TwitterClient *twitter.Client
@@ -31,12 +31,11 @@ type RouterDeps struct {
 func NewRouter(deps RouterDeps) http.Handler {
 	r := chi.NewRouter()
 
-	// Global middleware
+	// Global middleware (no Timeout here — applied per-route group to support long-polling)
 	r.Use(middleware.RequestID)
 	r.Use(slogMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000", "https://moltgame.com"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -52,64 +51,74 @@ func NewRouter(deps RouterDeps) http.Handler {
 	})
 
 	// Handlers
-	agentHandler := NewAgentHandler(deps.AgentRepo)
+	agentHandler := NewAgentHandler(deps.AgentRepo, deps.ChakraRepo)
 	ownerHandler := NewOwnerHandler(deps.AgentRepo, deps.ChakraRepo, deps.TwitterClient)
-	gameHandler := NewGameHandler(deps.Rooms, deps.GameRepo, deps.Settlement)
-	// Wire up OnGameOver for timeout-triggered settlements
-	deps.Rooms.OnGameOver = gameHandler.SettleGame
+	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.Settlement)
 	matchHandler := NewMatchmakingHandler(deps.MatchSvc, deps.AgentRepo)
 	authHandler := NewAuthHandler(deps.TwitterClient, deps.Sessions)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public routes
-		r.Post("/agents/register", agentHandler.Register)
-		r.Get("/agents/{name}", agentHandler.GetByName)
-
-		// Twitter OAuth
-		r.Get("/auth/twitter", authHandler.StartTwitterAuth)
-		r.Post("/auth/twitter/callback", authHandler.TwitterCallback)
-
-		// Agent-authenticated routes
+		// Agent long-polling — NO standard timeout (uses its own 65s)
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAgent(deps.AgentRepo))
-			r.Get("/agents/me", agentHandler.GetMe)
-			r.Patch("/agents/me", agentHandler.UpdateMe)
-			r.Get("/agents/me/status", agentHandler.GetStatus)
+			r.Use(middleware.Timeout(65 * time.Second))
+			r.Get("/agent/wait", gameProxy.AgentWait)
 		})
 
-		// Game routes
-		r.Get("/games/live", gameHandler.ListLiveGames)
-		r.Get("/games/recent", gameHandler.ListRecentGames)
-
+		// All other routes use standard 30s timeout
 		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireAgent(deps.AgentRepo))
-			r.Post("/games", gameHandler.CreateGame)
-			r.Get("/games/{id}/state", gameHandler.GetGameState)
-			r.Post("/games/{id}/action", gameHandler.SubmitAction)
+			r.Use(middleware.Timeout(30 * time.Second))
+
+			// Public routes
+			r.Post("/agents/register", agentHandler.Register)
+			r.Get("/agents/{name}", agentHandler.GetByName)
+
+			// Twitter OAuth
+			r.Get("/auth/twitter", authHandler.StartTwitterAuth)
+			r.Post("/auth/twitter/callback", authHandler.TwitterCallback)
+
+			// Agent-authenticated routes
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireAgent(deps.AgentRepo))
+				r.Get("/agents/me", agentHandler.GetMe)
+				r.Patch("/agents/me", agentHandler.UpdateMe)
+				r.Get("/agents/me/status", agentHandler.GetStatus)
+			})
+
+			// Game routes (proxied to poker-engine via NATS)
+			r.Get("/games/live", gameProxy.ListLiveGames)
+			r.Get("/games/recent", gameProxy.ListRecentGames)
+
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireAgent(deps.AgentRepo))
+				r.Post("/games", gameProxy.CreateGame)
+				r.Get("/games/{id}/state", gameProxy.GetGameState)
+				r.Post("/games/{id}/action", gameProxy.SubmitAction)
+			})
+
+			r.Get("/games/{id}/spectate", gameProxy.GetSpectatorState)
+			r.Get("/games/{id}/events", gameProxy.GetGameHistory)
+
+			// Matchmaking routes
+			r.Get("/matchmaking/status", matchHandler.QueueStatus)
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireAgent(deps.AgentRepo))
+				r.Post("/matchmaking/join", matchHandler.JoinQueue)
+				r.Delete("/matchmaking/leave", matchHandler.LeaveQueue)
+			})
+
+			// Owner routes (JWT session required)
+			r.Route("/owner", func(r chi.Router) {
+				r.Use(auth.RequireOwner(deps.Sessions))
+				r.Get("/agents", ownerHandler.GetMyAgents)
+				r.Post("/agents/{id}/rotate-key", ownerHandler.RotateKey)
+				r.Post("/agents/{id}/check-in", ownerHandler.CheckIn)
+			})
+
+			// Agent claim (requires owner JWT — twitter_id from JWT, not request body)
+			r.With(auth.RequireOwner(deps.Sessions)).Post("/agents/claim", ownerHandler.ClaimAgent)
 		})
-
-		r.Get("/games/{id}/spectate", gameHandler.GetSpectatorState)
-		r.Get("/games/{id}/events", gameHandler.GetGameHistory)
-
-		// Matchmaking routes
-		r.Get("/matchmaking/status", matchHandler.QueueStatus)
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireAgent(deps.AgentRepo))
-			r.Post("/matchmaking/join", matchHandler.JoinQueue)
-			r.Delete("/matchmaking/leave", matchHandler.LeaveQueue)
-		})
-
-		// Owner routes (JWT session required)
-		r.Route("/owner", func(r chi.Router) {
-			r.Use(auth.RequireOwner(deps.Sessions))
-			r.Get("/agents", ownerHandler.GetMyAgents)
-			r.Post("/agents/{id}/rotate-key", ownerHandler.RotateKey)
-			r.Post("/agents/{id}/check-in", ownerHandler.CheckIn)
-		})
-
-		// Agent claim (requires owner JWT — twitter_id from JWT, not request body)
-		r.With(auth.RequireOwner(deps.Sessions)).Post("/agents/claim", ownerHandler.ClaimAgent)
 	})
 
 	return r

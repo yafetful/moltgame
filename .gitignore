@@ -16,6 +16,9 @@ backend/bin/
 backend/tmp/
 backend/api-gateway
 backend/ws-gateway
+backend/poker-engine
+backend/simulate-ai
+backend/test-structured
 *.exe
 *.test
 *.out

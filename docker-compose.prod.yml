@@ -75,6 +75,22 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      poker-engine:
+        condition: service_started
+    networks:
+      - internal
+
+  poker-engine:
+    build:
+      context: ./backend
+      target: poker-engine
+    container_name: moltgame-poker
+    restart: unless-stopped
+    environment:
+      NATS_ADDR: nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
     networks:
       - internal
 

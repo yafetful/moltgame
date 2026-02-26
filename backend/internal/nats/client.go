@@ -100,6 +100,25 @@ func (c *Client) QueueSubscribe(subject, queue string, handler nats.MsgHandler) 
 	return c.conn.QueueSubscribe(subject, queue, handler)
 }
 
+// RequestJSON sends a JSON request and decodes the JSON response.
+func (c *Client) RequestJSON(subject string, req interface{}, resp interface{}, timeout time.Duration) error {
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	msg, err := c.conn.Request(subject, payload, timeout)
+	if err != nil {
+		return fmt.Errorf("nats request %s: %w", subject, err)
+	}
+
+	if err := json.Unmarshal(msg.Data, resp); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	return nil
+}
+
 // --- Message types ---
 
 // GameStateMsg is broadcast when game state changes.

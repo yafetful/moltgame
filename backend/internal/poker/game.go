@@ -86,9 +86,10 @@ func (g *Game) StartHand() ([]Event, error) {
 	g.HandNum++
 	g.Events = nil
 
-	// Rotate dealer (first hand starts at seat 0)
+	// M3: Dead Button — advance by one physical seat each hand
+	// (the button may land on an eliminated player)
 	if g.HandNum > 1 {
-		g.DealerIdx = g.nextSeatAfter(g.DealerIdx)
+		g.DealerIdx = (g.DealerIdx + 1) % len(g.Players)
 	}
 
 	// Reset per-hand player state
@@ -102,6 +103,7 @@ func (g *Game) StartHand() ([]Event, error) {
 		p.AllIn = false
 		p.Bet = 0
 		p.HasActed = false
+		p.StartChips = p.Chips // m3: record starting chips for elimination ranking
 	}
 	g.Community = nil
 
@@ -130,7 +132,8 @@ func (g *Game) StartHand() ([]Event, error) {
 		BigBlindAmount:   g.Players[bbIdx].Bet,
 	})
 
-	g.CurrentBet = g.Players[bbIdx].Bet // actual BB posted (may be short)
+	// M2: CurrentBet = nominal BB (not the actual posted amount which may be short)
+	g.CurrentBet = bb
 	g.MinRaise = bb
 
 	// Shuffle and deal
@@ -207,6 +210,14 @@ func (g *Game) Act(playerID string, action Action) ([]Event, error) {
 	p := g.Players[g.ActionIdx]
 	startEvtCount := len(g.Events)
 
+	// Normal action resets timeout tracking (agent is responsive)
+	if p.TimeoutCount > 0 {
+		p.TimeoutCount = 0
+	}
+	if p.Disconnected {
+		p.Disconnected = false
+	}
+
 	if err := g.executeAction(p, action); err != nil {
 		return nil, err
 	}
@@ -232,6 +243,7 @@ func (g *Game) GetGameState(playerID string) GameState {
 		GameID:     g.ID,
 		HandNum:    g.HandNum,
 		Phase:      g.Phase.String(),
+		Finished:   g.Finished,
 		Community:  g.Community,
 		CurrentBet: g.CurrentBet,
 		Pots:       g.currentPots(),
@@ -249,13 +261,15 @@ func (g *Game) GetGameState(playerID string) GameState {
 
 	for _, p := range g.Players {
 		ps := PlayerState{
-			ID:         p.ID,
-			Seat:       p.Seat,
-			Chips:      p.Chips,
-			Bet:        p.TotalBet,
-			Folded:     p.Folded,
-			AllIn:      p.AllIn,
-			Eliminated: p.Eliminated,
+			ID:           p.ID,
+			Seat:         p.Seat,
+			Chips:        p.Chips,
+			Bet:          p.Bet,      // m2: current round bet
+			TotalBet:     p.TotalBet, // m2: total bet for the hand
+			Folded:       p.Folded,
+			AllIn:        p.AllIn,
+			Eliminated:   p.Eliminated,
+			Disconnected: p.Disconnected,
 		}
 		// Only show hole cards to the player themselves
 		if p.ID == playerID {
@@ -284,12 +298,11 @@ func (g *Game) GetSpectatorState() GameState {
 
 func (g *Game) executeAction(p *Player, action Action) error {
 	toCall := g.CurrentBet - p.Bet
+	var cost int // m1: actual chips invested in this action
 
 	switch action.Type {
 	case ActionFold:
-		if toCall <= 0 {
-			return fmt.Errorf("%w: cannot fold when you can check", ErrInvalidAction)
-		}
+		// C1: allow fold at any time (removed toCall<=0 restriction)
 		p.Folded = true
 
 	case ActionCheck:
@@ -301,12 +314,19 @@ func (g *Game) executeAction(p *Player, action Action) error {
 		if toCall <= 0 {
 			return fmt.Errorf("%w: nothing to call", ErrInvalidAction)
 		}
+		// M4: auto all-in if can't afford full call
 		if toCall >= p.Chips {
-			return fmt.Errorf("%w: not enough chips to call, use allin", ErrInvalidAction)
+			cost = p.Chips
+			p.Bet += cost
+			p.TotalBet += cost
+			p.Chips = 0
+			p.AllIn = true
+		} else {
+			cost = toCall
+			p.Chips -= cost
+			p.Bet += cost
+			p.TotalBet += cost
 		}
-		p.Chips -= toCall
-		p.Bet += toCall
-		p.TotalBet += toCall
 
 	case ActionRaise:
 		raiseTo := action.Amount
@@ -321,7 +341,7 @@ func (g *Game) executeAction(p *Player, action Action) error {
 		}
 
 		raiseIncrement := raiseTo - g.CurrentBet
-		cost := raiseTo - p.Bet
+		cost = raiseTo - p.Bet
 
 		p.Chips -= cost
 		p.Bet += cost
@@ -341,7 +361,7 @@ func (g *Game) executeAction(p *Player, action Action) error {
 		}
 
 	case ActionAllIn:
-		cost := p.Chips
+		cost = p.Chips
 		if cost <= 0 {
 			return fmt.Errorf("%w: no chips to go all-in", ErrInvalidAction)
 		}
@@ -373,30 +393,18 @@ func (g *Game) executeAction(p *Player, action Action) error {
 
 	p.HasActed = true
 
-	// Emit action event
+	// m1: Amount is the actual chips invested in this action
 	g.emit(EventPlayerAction, PlayerActionData{
 		Seat:      p.Seat,
 		PlayerID:  p.ID,
 		Action:    action.Type,
-		Amount:    g.actionAmount(p, action),
+		Amount:    cost,
 		ChipsLeft: p.Chips,
 		TotalPot:  g.totalPot(),
+		Reason:    action.Reason,
 	})
 
 	return nil
-}
-
-func (g *Game) actionAmount(p *Player, action Action) int {
-	switch action.Type {
-	case ActionRaise:
-		return action.Amount
-	case ActionAllIn:
-		return p.TotalBet
-	case ActionCall:
-		return g.CurrentBet
-	default:
-		return 0
-	}
 }
 
 // --- Action advancement ---
@@ -482,7 +490,9 @@ func (g *Game) startBettingRound() {
 	g.ActionIdx = g.nextActiveAfter(g.DealerIdx)
 }
 
+// M1: burn a card before dealing community cards
 func (g *Game) dealCommunity(count int, phase string) {
+	g.deck.Draw(1) // burn card
 	cards := g.deck.Draw(count)
 	g.Community = append(g.Community, cards...)
 	g.emit(EventCommunityDealt, CommunityDealtData{
@@ -493,7 +503,7 @@ func (g *Game) dealCommunity(count int, phase string) {
 }
 
 func (g *Game) runToShowdown() {
-	// Deal remaining community cards without betting
+	// Deal remaining community cards without betting (each with burn)
 	switch g.Phase {
 	case PhasePreflop:
 		g.dealCommunity(3, "flop")
@@ -563,6 +573,15 @@ func (g *Game) doShowdown() {
 		// Find winner(s)
 		winners := findPotWinners(eligiblePlayers, eligibleEvals)
 
+		// C2: sort winners by clockwise distance from dealer (left of button first)
+		// so the odd chip goes to the first player left of the button
+		n := len(g.Players)
+		sort.Slice(winners, func(i, j int) bool {
+			distI := (winners[i].Seat - g.DealerIdx - 1 + n) % n
+			distJ := (winners[j].Seat - g.DealerIdx - 1 + n) % n
+			return distI < distJ
+		})
+
 		// Split pot among winners
 		share := pot.Amount / len(winners)
 		remainder := pot.Amount % len(winners)
@@ -571,7 +590,7 @@ func (g *Game) doShowdown() {
 		for i, w := range winners {
 			winAmount := share
 			if i == 0 {
-				winAmount += remainder
+				winAmount += remainder // odd chip to first player left of button
 			}
 			w.Chips += winAmount
 			potWinners[i] = PotWinner{
@@ -642,17 +661,30 @@ func (g *Game) endHandEarly() {
 }
 
 func (g *Game) endHand() {
-	// Eliminate players with no chips
+	// C3: collect all players eliminated this hand, sort by StartChips for ranking
+	var eliminated []*Player
 	for _, p := range g.Players {
 		if !p.Eliminated && p.Chips <= 0 {
-			p.Eliminated = true
-			p.EliminatedAt = g.HandNum
-			g.emit(EventPlayerEliminated, PlayerEliminatedData{
-				Seat:     p.Seat,
-				PlayerID: p.ID,
-				Rank:     g.alivePlayers() + 1,
-			})
+			eliminated = append(eliminated, p)
 		}
+	}
+
+	// Sort by StartChips descending: bigger starting stack = better rank among co-eliminated
+	sort.Slice(eliminated, func(i, j int) bool {
+		return eliminated[i].StartChips > eliminated[j].StartChips
+	})
+
+	aliveAfter := g.alivePlayers() - len(eliminated)
+
+	for i, p := range eliminated {
+		p.Eliminated = true
+		p.EliminatedAt = g.HandNum
+		rank := aliveAfter + 1 + i
+		g.emit(EventPlayerEliminated, PlayerEliminatedData{
+			Seat:     p.Seat,
+			PlayerID: p.ID,
+			Rank:     rank,
+		})
 	}
 
 	// Emit hand end
@@ -684,6 +716,16 @@ func (g *Game) endHand() {
 	g.ActionIdx = -1
 }
 
+// PlayerByID returns the player with the given ID, or nil.
+func (g *Game) PlayerByID(id string) *Player {
+	for _, p := range g.Players {
+		if p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
 // --- Valid actions ---
 
 func (g *Game) validActionsFor(p *Player) []ActionOption {
@@ -691,7 +733,8 @@ func (g *Game) validActionsFor(p *Player) []ActionOption {
 	toCall := g.CurrentBet - p.Bet
 
 	if toCall <= 0 {
-		// No outstanding bet
+		// C1: always allow fold, even when there's nothing to call
+		options = append(options, ActionOption{Type: ActionFold})
 		options = append(options, ActionOption{Type: ActionCheck})
 
 		if p.Chips > 0 {
@@ -765,9 +808,10 @@ func (g *Game) emit(t EventType, data interface{}) {
 	})
 }
 
+// M3: Dead Button — sbIdx accounts for possible dead button
 func (g *Game) sbIdx() int {
-	if g.alivePlayers() == 2 {
-		return g.DealerIdx // heads-up: dealer is SB
+	if g.alivePlayers() == 2 && !g.Players[g.DealerIdx].Eliminated {
+		return g.DealerIdx // heads-up with live button: dealer is SB
 	}
 	return g.nextSeatAfter(g.DealerIdx)
 }
@@ -889,6 +933,7 @@ func (g *Game) GetRankings() []RankingEntry {
 	return g.buildRankings()
 }
 
+// C3: buildRankings with StartChips sub-sort for same-hand eliminations
 func (g *Game) buildRankings() []RankingEntry {
 	rankings := make([]RankingEntry, 0, len(g.Players))
 
@@ -900,19 +945,24 @@ func (g *Game) buildRankings() []RankingEntry {
 	}
 
 	// Eliminated players sorted by EliminatedAt descending (later = better rank)
+	// For same-hand eliminations, higher StartChips = better rank
 	type elimInfo struct {
 		seat         int
 		playerID     string
 		eliminatedAt int
+		startChips   int
 	}
 	var eliminated []elimInfo
 	for _, p := range g.Players {
 		if p.Eliminated {
-			eliminated = append(eliminated, elimInfo{p.Seat, p.ID, p.EliminatedAt})
+			eliminated = append(eliminated, elimInfo{p.Seat, p.ID, p.EliminatedAt, p.StartChips})
 		}
 	}
 	sort.Slice(eliminated, func(i, j int) bool {
-		return eliminated[i].eliminatedAt > eliminated[j].eliminatedAt
+		if eliminated[i].eliminatedAt != eliminated[j].eliminatedAt {
+			return eliminated[i].eliminatedAt > eliminated[j].eliminatedAt
+		}
+		return eliminated[i].startChips > eliminated[j].startChips
 	})
 	for i, e := range eliminated {
 		rankings = append(rankings, RankingEntry{

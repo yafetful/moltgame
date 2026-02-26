@@ -31,6 +31,7 @@ func CalculatePots(players []*Player) []Pot {
 
 	var pots []Pot
 	prevLevel := 0
+	var carry int // m4: dead money carried forward when no eligible players and no prior pot
 
 	for _, level := range levels {
 		increment := level - prevLevel
@@ -60,19 +61,30 @@ func CalculatePots(players []*Player) []Pot {
 
 		if potAmount > 0 {
 			if len(eligible) == 0 {
-				// Dead money from folded players - add to previous pot
+				// Dead money from folded players - add to previous pot or carry forward
 				if len(pots) > 0 {
 					pots[len(pots)-1].Amount += potAmount
+				} else {
+					carry += potAmount
 				}
-			} else if len(pots) > 0 && sameEligible(pots[len(pots)-1].Eligible, eligible) {
-				// Same eligible set as previous pot - merge
-				pots[len(pots)-1].Amount += potAmount
 			} else {
-				pots = append(pots, Pot{Amount: potAmount, Eligible: eligible})
+				potAmount += carry
+				carry = 0
+				if len(pots) > 0 && sameEligible(pots[len(pots)-1].Eligible, eligible) {
+					// Same eligible set as previous pot - merge
+					pots[len(pots)-1].Amount += potAmount
+				} else {
+					pots = append(pots, Pot{Amount: potAmount, Eligible: eligible})
+				}
 			}
 		}
 
 		prevLevel = level
+	}
+
+	// If carry remains (all eligible players folded — edge case), add to last pot
+	if carry > 0 && len(pots) > 0 {
+		pots[len(pots)-1].Amount += carry
 	}
 
 	return pots

@@ -11,7 +11,6 @@ import (
 
 	"github.com/moltgame/backend/internal/auth"
 	natsClient "github.com/moltgame/backend/internal/nats"
-	"github.com/moltgame/backend/internal/room"
 	"github.com/moltgame/backend/internal/ws"
 	"github.com/moltgame/backend/pkg/config"
 	"github.com/moltgame/backend/pkg/database"
@@ -42,11 +41,10 @@ func main() {
 
 	// Initialize components
 	agentRepo := auth.NewAgentRepository(db)
-	rooms := room.NewManager()
 	hub := ws.NewHub()
-	server := ws.NewServer(hub, rooms, nc, agentRepo)
+	server := ws.NewServer(hub, nc, agentRepo)
 
-	// Subscribe to NATS events
+	// Subscribe to NATS events for broadcasting to WebSocket clients
 	if err := server.SubscribeNATSEvents(ctx); err != nil {
 		slog.Error("failed to subscribe nats events", "error", err)
 		os.Exit(1)

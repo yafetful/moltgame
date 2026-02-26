@@ -13,9 +13,10 @@ const (
 	EventPlayerAction     EventType = "player_action"
 	EventShowdown         EventType = "showdown"
 	EventPotAwarded       EventType = "pot_awarded"
-	EventPlayerEliminated EventType = "player_eliminated"
-	EventHandEnd          EventType = "hand_end"
-	EventGameOver         EventType = "game_over"
+	EventPlayerEliminated    EventType = "player_eliminated"
+	EventPlayerDisconnected  EventType = "player_disconnected"
+	EventHandEnd             EventType = "hand_end"
+	EventGameOver            EventType = "game_over"
 )
 
 // Event is a game event for Event Sourcing and spectator broadcasting.
@@ -70,6 +71,7 @@ type PlayerActionData struct {
 	Amount    int        `json:"amount"`
 	ChipsLeft int        `json:"chips_left"`
 	TotalPot  int        `json:"total_pot"`
+	Reason    string     `json:"reason,omitempty"` // AI decision reason (visible to spectators only)
 }
 
 // ShowdownData is emitted when hands are revealed at showdown.
@@ -99,6 +101,12 @@ type PotWinner struct {
 	Seat     int    `json:"seat"`
 	PlayerID string `json:"player_id"`
 	Amount   int    `json:"amount"`
+}
+
+// PlayerDisconnectedData is emitted when a player is marked disconnected after 3 consecutive timeouts.
+type PlayerDisconnectedData struct {
+	Seat     int    `json:"seat"`
+	PlayerID string `json:"player_id"`
 }
 
 // PlayerEliminatedData is emitted when a player is eliminated.

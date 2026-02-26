@@ -13,17 +13,15 @@ func TestBlindSchedule(t *testing.T) {
 		wantSB   int
 		wantBB   int
 	}{
-		{1, 10, 20},
-		{10, 10, 20},
-		{11, 20, 40},
-		{20, 20, 40},
-		{21, 30, 60},
-		{31, 50, 100},
-		{41, 100, 200},
-		{51, 150, 300},
-		{61, 200, 400},
-		{71, 300, 600},
-		{100, 300, 600}, // stays at max level
+		{1, 40, 80},
+		{6, 40, 80},
+		{7, 80, 160},
+		{12, 80, 160},
+		{13, 160, 320},
+		{19, 320, 640},
+		{25, 640, 1280},
+		{31, 1280, 2560},
+		{50, 1280, 2560}, // stays at max level
 	}
 
 	for _, tt := range tests {
@@ -172,14 +170,14 @@ func TestStartHand(t *testing.T) {
 	// Dealer = seat 0, SB = seat 1, BB = seat 2 (3 players)
 	sb := g.Players[1]
 	bb := g.Players[2]
-	if sb.Bet != 10 {
-		t.Errorf("SB bet = %d, want 10", sb.Bet)
+	if sb.Bet != 40 {
+		t.Errorf("SB bet = %d, want 40", sb.Bet)
 	}
-	if bb.Bet != 20 {
-		t.Errorf("BB bet = %d, want 20", bb.Bet)
+	if bb.Bet != 80 {
+		t.Errorf("BB bet = %d, want 80", bb.Bet)
 	}
-	if sb.Chips != StartingChips-10 {
-		t.Errorf("SB chips = %d, want %d", sb.Chips, StartingChips-10)
+	if sb.Chips != StartingChips-40 {
+		t.Errorf("SB chips = %d, want %d", sb.Chips, StartingChips-40)
 	}
 
 	// Verify hole cards dealt
@@ -205,11 +203,11 @@ func TestHeadsUpBlinds(t *testing.T) {
 	}
 
 	// Heads-up: dealer (seat 0) is SB, seat 1 is BB
-	if g.Players[0].Bet != 10 {
-		t.Errorf("dealer/SB bet = %d, want 10", g.Players[0].Bet)
+	if g.Players[0].Bet != 40 {
+		t.Errorf("dealer/SB bet = %d, want 40", g.Players[0].Bet)
 	}
-	if g.Players[1].Bet != 20 {
-		t.Errorf("BB bet = %d, want 20", g.Players[1].Bet)
+	if g.Players[1].Bet != 80 {
+		t.Errorf("BB bet = %d, want 80", g.Players[1].Bet)
 	}
 
 	// In heads-up, SB/dealer acts first preflop
@@ -245,7 +243,7 @@ func TestSimpleHandAllFold(t *testing.T) {
 	}
 
 	// BB should have won the blinds
-	expectedChips := StartingChips - 20 + 30 // BB posted 20, won 10+20=30 total pot
+	expectedChips := StartingChips - 80 + 120 // BB posted 80, won 40+80=120 total pot
 	if g.Players[2].Chips != expectedChips {
 		t.Errorf("BB chips = %d, want %d", g.Players[2].Chips, expectedChips)
 	}
@@ -354,19 +352,19 @@ func TestRaiseAndCall(t *testing.T) {
 		t.Fatalf("StartHand error: %v", err)
 	}
 
-	// UTG raises to 60
-	_, err = g.Act("a", Action{Type: ActionRaise, Amount: 60})
+	// UTG raises to 240
+	_, err = g.Act("a", Action{Type: ActionRaise, Amount: 240})
 	if err != nil {
 		t.Fatalf("UTG raise error: %v", err)
 	}
 
-	// SB calls 60 (needs to add 50 more, since SB posted 10)
+	// SB calls 240 (needs to add 200 more, since SB posted 40)
 	_, err = g.Act("b", Action{Type: ActionCall})
 	if err != nil {
 		t.Fatalf("SB call error: %v", err)
 	}
 
-	// BB calls 60 (needs to add 40 more, since BB posted 20)
+	// BB calls 240 (needs to add 160 more, since BB posted 80)
 	_, err = g.Act("c", Action{Type: ActionCall})
 	if err != nil {
 		t.Fatalf("BB call error: %v", err)
@@ -377,10 +375,10 @@ func TestRaiseAndCall(t *testing.T) {
 		t.Errorf("phase = %v, want flop", g.Phase)
 	}
 
-	// Total pot should be 60 * 3 = 180
+	// Total pot should be 240 * 3 = 720
 	pot := g.totalPot()
-	if pot != 180 {
-		t.Errorf("total pot = %d, want 180", pot)
+	if pot != 720 {
+		t.Errorf("total pot = %d, want 720", pot)
 	}
 }
 
@@ -563,7 +561,7 @@ func TestInvalidActions(t *testing.T) {
 	}
 
 	// UTG tries to raise below minimum
-	_, err = g.Act("a", Action{Type: ActionRaise, Amount: 25}) // min is 40 (20+20)
+	_, err = g.Act("a", Action{Type: ActionRaise, Amount: 120}) // min is 160 (80+80)
 	if err == nil {
 		t.Error("expected error for under-minimum raise")
 	}
@@ -632,8 +630,8 @@ func TestValidActionsOptions(t *testing.T) {
 	// Check raise bounds
 	for _, a := range actions {
 		if a.Type == ActionRaise {
-			if a.MinAmount != 40 { // BB=20, min raise = 20+20 = 40
-				t.Errorf("min raise = %d, want 40", a.MinAmount)
+			if a.MinAmount != 160 { // BB=80, min raise = 80+80 = 160
+				t.Errorf("min raise = %d, want 160", a.MinAmount)
 			}
 			if a.MaxAmount != StartingChips { // can bet up to all chips
 				t.Errorf("max raise = %d, want %d", a.MaxAmount, StartingChips)

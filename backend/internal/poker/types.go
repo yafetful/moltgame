@@ -48,6 +48,7 @@ const (
 type Action struct {
 	Type   ActionType `json:"type"`
 	Amount int        `json:"amount,omitempty"` // for raise: total bet amount
+	Reason string     `json:"reason,omitempty"` // AI decision reason (stored in events for spectators)
 }
 
 // ActionOption describes a valid action a player can take.
@@ -64,7 +65,8 @@ type Player struct {
 	Seat int    // 0-indexed seat number
 
 	// Chip state
-	Chips int // remaining chips (not counting current bets)
+	Chips      int // remaining chips (not counting current bets)
+	StartChips int // chips at start of current hand (for elimination ranking)
 
 	// Per-hand state (reset each hand)
 	Hole     []cardrank.Card // hole cards
@@ -79,6 +81,10 @@ type Player struct {
 	// Tournament state
 	Eliminated   bool
 	EliminatedAt int // hand number when eliminated
+
+	// Timeout tracking
+	TimeoutCount int  // consecutive timeout count (reset on normal action)
+	Disconnected bool // marked after 3 consecutive timeouts, auto-fold immediately
 }
 
 // IsActive returns true if the player can still act in the current hand.
@@ -96,6 +102,7 @@ type GameState struct {
 	GameID       string          `json:"game_id"`
 	HandNum      int             `json:"hand_num"`
 	Phase        string          `json:"phase"`
+	Finished     bool            `json:"finished"`
 	Community    []cardrank.Card `json:"community"`
 	CurrentBet   int             `json:"current_bet"`
 	SmallBlind   int             `json:"small_blind"`
@@ -108,12 +115,14 @@ type GameState struct {
 
 // PlayerState is the player state visible in GameState.
 type PlayerState struct {
-	ID         string          `json:"id"`
-	Seat       int             `json:"seat"`
-	Chips      int             `json:"chips"`
-	Bet        int             `json:"bet"`
-	Hole       []cardrank.Card `json:"hole,omitempty"`
-	Folded     bool            `json:"folded"`
-	AllIn      bool            `json:"all_in"`
-	Eliminated bool            `json:"eliminated"`
+	ID           string          `json:"id"`
+	Seat         int             `json:"seat"`
+	Chips        int             `json:"chips"`
+	Bet          int             `json:"bet"`
+	TotalBet     int             `json:"total_bet"`
+	Hole         []cardrank.Card `json:"hole,omitempty"`
+	Folded       bool            `json:"folded"`
+	AllIn        bool            `json:"all_in"`
+	Eliminated   bool            `json:"eliminated"`
+	Disconnected bool            `json:"disconnected,omitempty"`
 }
