@@ -1,124 +1,90 @@
 "use client";
 
-import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { LocaleSwitcher } from "./LocaleSwitcher";
+import { useState } from "react";
 import Image from "next/image";
+import LocaleSwitcher from "./LocaleSwitcher";
 
-export function Nav() {
+const NAV_ITEMS = [
+  { key: "home", href: "/", rotate: "-6deg" },
+  { key: "lobby", href: "/lobby", rotate: "6deg" },
+  { key: "leaderboard", href: "/leaderboard", rotate: "-6deg" },
+  { key: "dashboard", href: "/dashboard", rotate: "6deg" },
+] as const;
+
+export default function Nav({ variant = "center" }: { variant?: "center" | "logo" }) {
   const t = useTranslations("nav");
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [hovered, setHovered] = useState<string | null>(null);
 
-  const links = [
-    { href: "/", label: t("home") },
-    { href: "/lobby", label: t("lobby") },
-    { href: "/leaderboard", label: t("leaderboard") },
-    { href: "/dashboard", label: t("dashboard") },
-  ];
+  const activeKey = NAV_ITEMS.find((item) =>
+    item.href === "/"
+      ? pathname === "/" || pathname === ""
+      : pathname.startsWith(item.href),
+  )?.key;
 
-  return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0D0B1A]/90 backdrop-blur-md">
-      <nav className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-        <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2">
-            <Image
-              src="/logo/logo-horizontal.png"
-              alt="moltgame"
-              width={120}
-              height={32}
-              className="h-8 w-auto"
-              priority
-            />
+  const links = (
+    <div
+      className="flex h-20 items-center gap-4"
+      onMouseLeave={() => setHovered(null)}
+    >
+      {NAV_ITEMS.map((item) => {
+        const highlight =
+          hovered === item.key ||
+          (activeKey === item.key && hovered === null);
+
+        return (
+          <Link
+            key={item.key}
+            href={item.href}
+            className="inline-flex items-center justify-center rounded-full border-2 px-4 py-2 transition-all duration-200 ease-out"
+            style={{
+              borderColor: highlight ? "black" : "transparent",
+              transform: highlight ? `rotate(${item.rotate})` : "none",
+            }}
+            onMouseEnter={() => setHovered(item.key)}
+          >
+            <span
+              className={`text-lg text-black ${highlight ? "font-black" : "font-semibold"}`}
+            >
+              {t(item.key)}
+            </span>
           </Link>
-          <div className="hidden items-center gap-1 sm:flex">
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={cn(
-                  "relative rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  pathname === link.href
-                    ? "text-white"
-                    : "text-white/60 hover:text-white hover:bg-white/5",
-                )}
-              >
-                {pathname === link.href && (
-                  <motion.div
-                    layoutId="nav-indicator"
-                    className="absolute inset-0 rounded-md bg-brand-primary/20"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
-                  />
-                )}
-                <span className="relative z-10">{link.label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
+        );
+      })}
+    </div>
+  );
 
-        <div className="flex items-center gap-3">
+  if (variant === "logo") {
+    return (
+      <nav className="mb-8 flex h-20 items-center justify-between px-8 pt-4">
+        <Link href="/" className="shrink-0">
+          <Image
+            src="/logo/logo-horizontal.png"
+            alt="MoltGame"
+            width={192}
+            height={48}
+            className="h-12 w-auto object-contain"
+            priority
+          />
+        </Link>
+        <div className="absolute inset-x-0 top-0 flex justify-center pointer-events-none">
+          <div className="pointer-events-auto">{links}</div>
+        </div>
+        <div className="shrink-0">
           <LocaleSwitcher />
-          <a
-            href="https://docs.moltgame.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden rounded-md px-3 py-1.5 text-sm font-medium text-white/60 transition-colors hover:text-white sm:block"
-          >
-            {t("docs")}
-          </a>
-          {/* Mobile hamburger */}
-          <button
-            onClick={() => setMobileOpen((v) => !v)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-white/60 hover:text-white sm:hidden"
-            aria-label="Menu"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
         </div>
       </nav>
+    );
+  }
 
-      {/* Mobile menu */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden border-t border-white/10 sm:hidden"
-          >
-            <div className="flex flex-col gap-1 px-4 py-3">
-              {links.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  className={cn(
-                    "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    pathname === link.href
-                      ? "bg-brand-primary/20 text-white"
-                      : "text-white/60 hover:text-white hover:bg-white/5",
-                  )}
-                >
-                  {link.label}
-                </Link>
-              ))}
-              <a
-                href="https://docs.moltgame.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:text-white"
-              >
-                {t("docs")}
-              </a>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </header>
+  return (
+    <nav className="absolute inset-x-0 top-0 z-50 flex items-start justify-center px-8 pt-4">
+      {links}
+      <div className="absolute right-8 top-11">
+        <LocaleSwitcher />
+      </div>
+    </nav>
   );
 }

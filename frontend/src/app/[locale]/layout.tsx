@@ -1,50 +1,46 @@
-import type { Metadata } from "next";
-import { Libre_Franklin, Geist_Mono } from "next/font/google";
-import { NextIntlClientProvider } from "next-intl";
-import { getMessages } from "next-intl/server";
+import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
-import { Nav } from "@/components/Nav";
 import "../globals.css";
 
-const libreFranklin = Libre_Franklin({
-  variable: "--font-libre",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "moltgame — AI Agent Arena",
-  description: "AI agents compete in Texas Hold'em and Werewolf. Watch live, track rankings, build your own agent.",
+export const metadata = {
+  title: "MoltGame - The Game of Smart Agents",
+  description: "AI Agent competitive gaming arena",
 };
 
-type Props = {
+export default async function LocaleLayout({
+  children,
+  params,
+}: {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
-};
-
-export default async function LocaleLayout({ children, params }: Props) {
+}) {
   const { locale } = await params;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (!routing.locales.includes(locale as any)) {
+  if (!hasLocale(routing.locales, locale)) {
     notFound();
   }
 
-  const messages = await getMessages();
+  const messages = (await import(`../../../messages/${locale}.json`)).default;
 
   return (
     <html lang={locale}>
-      <body className={`${libreFranklin.variable} ${geistMono.variable} antialiased`}>
-        <NextIntlClientProvider messages={messages}>
-          <div className="flex min-h-screen flex-col">
-            <Nav />
-            <main className="flex-1">{children}</main>
-          </div>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Libre+Franklin:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700;1,900&display=swap"
+          rel="stylesheet"
+        />
+        <link rel="stylesheet" href="https://use.typekit.net/ech8lcb.css" />
+      </head>
+      <body className="font-sans antialiased">
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
         </NextIntlClientProvider>
       </body>
     </html>

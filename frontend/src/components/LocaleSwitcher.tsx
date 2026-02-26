@@ -1,39 +1,77 @@
 "use client";
 
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useRouter, usePathname } from "@/i18n/navigation";
-import type { Locale } from "@/i18n/config";
+import { locales, type Locale } from "@/i18n/config";
+import { useState, useRef, useEffect } from "react";
 
-const localeLabels: Record<Locale, string> = {
-  en: "EN",
-  zh: "中",
-  ja: "日",
+const FLAG_ICONS: Record<Locale, string> = {
+  en: "/flags/us.svg",
+  zh: "/flags/cn.svg",
+  ja: "/flags/jp.svg",
 };
 
-export function LocaleSwitcher() {
+export default function LocaleSwitcher() {
+  const t = useTranslations("language");
   const locale = useLocale() as Locale;
   const router = useRouter();
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
-  function switchLocale(newLocale: Locale) {
-    router.replace(pathname, { locale: newLocale });
-  }
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const handleSwitch = (next: Locale) => {
+    router.replace(pathname, { locale: next });
+    setOpen(false);
+  };
 
   return (
-    <div className="flex items-center gap-0.5 rounded-md border border-white/10 p-0.5">
-      {(Object.entries(localeLabels) as [Locale, string][]).map(([loc, label]) => (
-        <button
-          key={loc}
-          onClick={() => switchLocale(loc)}
-          className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-            locale === loc
-              ? "bg-white/15 text-white"
-              : "text-white/40 hover:text-white/70"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex cursor-pointer items-center gap-2"
+      >
+        <img
+          src={FLAG_ICONS[locale]}
+          alt=""
+          className="h-[18px] w-6 shrink-0 rounded object-cover"
+        />
+        <span className="font-semibold text-sm text-black">{t(locale)}</span>
+        <img
+          src="/icons/arrow-up.svg"
+          alt=""
+          className={`size-2.5 shrink-0 transition-transform ${open ? "" : "rotate-180"}`}
+        />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 flex flex-col gap-3 rounded-xl border-2 border-black bg-[#fff2eb] p-3">
+          {locales.map((l) => (
+            <button
+              key={l}
+              onClick={() => handleSwitch(l)}
+              className={`flex cursor-pointer items-center gap-2 ${l === locale ? "font-bold" : ""}`}
+            >
+              <img
+                src={FLAG_ICONS[l]}
+                alt=""
+                className="h-[18px] w-6 shrink-0 rounded object-cover"
+              />
+              <span className="whitespace-nowrap font-semibold text-sm text-black">
+                {t(l)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
