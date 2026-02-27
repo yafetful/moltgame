@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Nav from "@/components/Nav";
 import PokerTable from "@/components/poker/PokerTable";
 import PlayerSeat from "@/components/poker/PlayerSeat";
+import PotAwardOverlay from "@/components/poker/PotAwardOverlay";
 import type { PlayerSeatProps } from "@/components/poker/PlayerSeat";
 import type {
   CommunityCard,
@@ -37,6 +38,16 @@ const SEAT_POSITIONS: {
   { left: 570, top: 554, mirrored: false }, // seat 3 — bottom
   { left: 0, top: 343, mirrored: true }, // seat 4 — left-bottom
   { left: 0, top: 175, mirrored: true }, // seat 5 — left-top
+];
+
+// Chip icon per seat (matches Figma design colors)
+const SEAT_CHIPS = [
+  "/poker/chips/chip-seat0.svg", // seat 0 — green
+  "/poker/chips/chip-seat1.svg", // seat 1 — blue-gray
+  "/poker/chips/chip-seat2.svg", // seat 2 — pink
+  "/poker/chips/chip-seat3.svg", // seat 3 — gold
+  "/poker/chips/chip-seat4.svg", // seat 4 — cyan
+  "/poker/chips/chip-seat5.svg", // seat 5 — purple
 ];
 
 // Avatar assignments per seat
@@ -197,6 +208,7 @@ function apiStateToProps(state: ApiGameState) {
     .map((p) => ({
       seatIndex: p.seat,
       amount: p.bet,
+      chipIcon: SEAT_CHIPS[p.seat % SEAT_CHIPS.length],
     }));
 
   return { stage, stageLabel, communityCards, pot, players, bets };
@@ -314,6 +326,13 @@ export default function GamePage() {
     number | undefined
   >(undefined);
 
+  // Pot award animation
+  const [potAward, setPotAward] = useState<{
+    winners: { seat: number; amount: number }[];
+    startedAt: number;
+  } | null>(null);
+  const potAwardTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
   // Countdown ring & reason tooltip (live mode)
   const [countdown, setCountdown] = useState(1);
   const [lastActionInfo, setLastActionInfo] = useState<{
@@ -356,6 +375,20 @@ export default function GamePage() {
               reasonTimeoutRef.current = setTimeout(
                 () => setLastActionInfo(null),
                 5000,
+              );
+            }
+            if (event.type === "pot_awarded" && event.data?.winners) {
+              const winners = (
+                event.data.winners as {
+                  seat: number;
+                  amount: number;
+                }[]
+              ).map((w) => ({ seat: w.seat, amount: w.amount }));
+              setPotAward({ winners, startedAt: Date.now() });
+              clearTimeout(potAwardTimerRef.current);
+              potAwardTimerRef.current = setTimeout(
+                () => setPotAward(null),
+                2000,
               );
             }
           }
@@ -410,6 +443,7 @@ export default function GamePage() {
     return () => {
       clearTimeout(reconnectTimer.current);
       clearTimeout(reasonTimeoutRef.current);
+      clearTimeout(potAwardTimerRef.current);
       wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -498,8 +532,35 @@ export default function GamePage() {
     liveState?.next_hand_at,
   ]);
 
+  // ─── Replay pot award detection ───
+  useEffect(() => {
+    if (!isReplay) return;
+    const frame = frames[frameIdx];
+    if (frame?.eventType === "pot_awarded" && frame.potAwardWinners) {
+      setPotAward({
+        winners: frame.potAwardWinners,
+        startedAt: Date.now(),
+      });
+      clearTimeout(potAwardTimerRef.current);
+      potAwardTimerRef.current = setTimeout(() => setPotAward(null), 2000);
+    } else {
+      setPotAward(null);
+    }
+  }, [isReplay, frameIdx, frames]);
+
   // Derive display props
   const display = currentState ? apiStateToProps(currentState) : null;
+
+  // Override winner status when pot award is active
+  if (display && potAward) {
+    const winnerSeats = new Set(potAward.winners.map((w) => w.seat));
+    for (let i = 0; i < display.players.length; i++) {
+      if (winnerSeats.has(i)) {
+        display.players[i] = { ...display.players[i], status: "winner" };
+      }
+    }
+  }
+
   const replayLabel = isReplay && frames[frameIdx]
     ? frames[frameIdx].label
     : "";
@@ -613,6 +674,11 @@ export default function GamePage() {
                 />
               </div>
             ))}
+
+            {/* Pot award fly animation */}
+            {potAward && (
+              <PotAwardOverlay winners={potAward.winners} />
+            )}
           </div>
         )}
 

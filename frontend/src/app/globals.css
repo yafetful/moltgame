@@ -3,3 +3,8 @@
 @theme {
   --font-sans: "Libre Franklin", ui-sans-serif, system-ui, sans-serif;
 }
+
+@keyframes winner-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}

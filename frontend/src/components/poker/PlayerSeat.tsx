@@ -24,7 +24,7 @@ const RING_COLOR: Record<PlayerStatus, string> = {
   active: "#00d74b",
   folded: "#868686",
   allIn: "black",
-  winner: "black",
+  winner: "#00d74b",
   eliminated: "#868686",
 };
 
@@ -194,7 +194,7 @@ export default function PlayerSeat({
 
         {/* Chips badge */}
         <div
-          className={`rounded-full px-4 py-2 text-base font-medium text-white ${CHIP_BG[status]}`}
+          className={`rounded-full px-4 py-2 text-base font-medium text-white ${CHIP_BG[status]}${status === "winner" ? " animate-[winner-pulse_0.6s_ease-in-out_2]" : ""}`}
         >
           {chipLabel}
         </div>

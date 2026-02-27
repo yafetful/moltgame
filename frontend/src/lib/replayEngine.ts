@@ -15,6 +15,8 @@ export interface ReplayFrame {
   actionSeat?: number;
   /** AI decision reason from the last player action */
   reason?: string;
+  /** Winners from pot_awarded event (for animation) */
+  potAwardWinners?: { seat: number; amount: number }[];
 }
 
 // Number of seats in a standard poker game
@@ -324,6 +326,14 @@ export function buildReplayFrames(
             .join(", ");
           const totalAmt = winners.reduce((s, w) => s + w.amount, 0);
           snapshot(`${winnerNames} wins $${totalAmt}`, evt.event_type);
+          // Attach winner info to the last frame for animation
+          const lastFrame = frames[frames.length - 1];
+          if (lastFrame) {
+            lastFrame.potAwardWinners = winners.map((w) => ({
+              seat: w.seat,
+              amount: w.amount,
+            }));
+          }
         }
         break;
       }

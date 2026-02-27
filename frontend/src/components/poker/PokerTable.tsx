@@ -140,9 +140,9 @@ export default function PokerTable({
                 <Image
                   src={bet.chipIcon}
                   alt=""
-                  width={16}
-                  height={16}
-                  className="size-4"
+                  width={24}
+                  height={24}
+                  className="size-6"
                 />
               )}
               <span className="text-xs font-semibold text-white">
