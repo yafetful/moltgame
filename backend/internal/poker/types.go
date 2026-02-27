@@ -1,6 +1,10 @@
 package poker
 
-import "github.com/cardrank/cardrank"
+import (
+	"time"
+
+	"github.com/cardrank/cardrank"
+)
 
 // Phase represents the current phase of a poker hand.
 type Phase int
@@ -62,6 +66,7 @@ type ActionOption struct {
 // Player is a player at the poker table.
 type Player struct {
 	ID   string // agent ID
+	Name string // agent display name
 	Seat int    // 0-indexed seat number
 
 	// Chip state
@@ -107,15 +112,18 @@ type GameState struct {
 	CurrentBet   int             `json:"current_bet"`
 	SmallBlind   int             `json:"small_blind"`
 	BigBlind     int             `json:"big_blind"`
+	DealerSeat   int             `json:"dealer_seat"`
 	Pots         []Pot           `json:"pots"`
 	ActionOn     int             `json:"action_on"`
 	Players      []PlayerState   `json:"players"`
 	ValidActions []ActionOption  `json:"valid_actions,omitempty"`
+	NextHandAt   *time.Time      `json:"next_hand_at,omitempty"`
 }
 
 // PlayerState is the player state visible in GameState.
 type PlayerState struct {
 	ID           string          `json:"id"`
+	Name         string          `json:"name,omitempty"`
 	Seat         int             `json:"seat"`
 	Chips        int             `json:"chips"`
 	Bet          int             `json:"bet"`

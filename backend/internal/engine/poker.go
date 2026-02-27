@@ -43,6 +43,22 @@ func (e *PokerEngine) Start(ctx context.Context) error {
 			GameID: gameID, AgentID: agentID,
 		})
 	}
+	e.manager.OnBroadcast = func(gameID string, rm *room.Room, events interface{}) {
+		// Publish events
+		if events != nil {
+			e.nc.PublishJSON(natsClient.SubjectPokerEvent(gameID), events)
+		}
+		// Publish spectator state
+		if specState, err := rm.GetSpectatorState(); err == nil {
+			e.nc.PublishJSON(natsClient.SubjectPokerSpectate(gameID), specState)
+		}
+		// Publish personalized state to each agent
+		for _, pid := range rm.PlayerIDs {
+			if state, err := rm.GetState(pid); err == nil {
+				e.nc.PublishJSON(natsClient.SubjectPokerState(gameID, pid), state)
+			}
+		}
+	}
 
 	var err error
 	var sub *nats.Subscription
@@ -107,21 +123,10 @@ func (e *PokerEngine) handleCreateRoom(msg *nats.Msg) {
 		return
 	}
 
-	rm, err := e.manager.CreatePokerRoom(req.GameID, req.PlayerIDs, req.Seed, req.EntryFee)
-	if err != nil {
+	if _, err := e.manager.CreatePokerRoom(req.GameID, req.PlayerIDs, req.Seed, req.EntryFee, req.PlayerNames); err != nil {
 		slog.Error("create poker room failed", "game_id", req.GameID, "error", err)
 		respondJSON(msg, natsClient.CreateRoomResponse{Error: err.Error()})
 		return
-	}
-
-	// Persist initial hand-start events
-	if e.gameRepo != nil && rm != nil {
-		startSeq, newEvts := rm.DrainNewEvents()
-		if len(newEvts) > 0 {
-			if err := e.gameRepo.RecordEvents(context.Background(), req.GameID, startSeq, newEvts); err != nil {
-				slog.Error("failed to persist initial events", "game_id", req.GameID, "error", err)
-			}
-		}
 	}
 
 	slog.Info("poker room created", "game_id", req.GameID, "players", len(req.PlayerIDs))
@@ -151,16 +156,6 @@ func (e *PokerEngine) handleAction(msg *nats.Msg) {
 	if err != nil {
 		respondJSON(msg, natsClient.ActionResponse{Error: err.Error()})
 		return
-	}
-
-	// Persist new events incrementally to DB
-	if e.gameRepo != nil {
-		startSeq, newEvts := rm.DrainNewEvents()
-		if len(newEvts) > 0 {
-			if err := e.gameRepo.RecordEvents(context.Background(), roomID, startSeq, newEvts); err != nil {
-				slog.Error("failed to persist events", "game_id", roomID, "error", err)
-			}
-		}
 	}
 
 	eventsJSON, _ := json.Marshal(result.Events)

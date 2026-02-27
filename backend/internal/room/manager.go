@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	turnTimeout          = 30 * time.Second
-	disconnectThreshold  = 3 // consecutive timeouts before marking disconnected
+	turnTimeout        = 30 * time.Second
+	disconnectThreshold = 3 // consecutive timeouts before marking disconnected
+	handBreakDuration   = 5 * time.Second
 )
 
 // Room wraps an active game instance.
@@ -40,6 +41,11 @@ type Room struct {
 	OnGameOver    func(gameID string, room *Room)         // called when game ends (including by timeout)
 	OnFlushEvents func(gameID string, room *Room)         // called after events are accumulated to persist them
 	OnTurnNotify  func(gameID string, agentID string)     // called to notify next actor it's their turn
+
+	// Hand break timer: delays between hands for animation
+	handBreakTimer *time.Timer
+	NextHandAt     *time.Time
+	OnBroadcast    func(gameID string, room *Room, events interface{}) // called to broadcast state updates (called outside lock)
 }
 
 // Manager manages all active game rooms in memory.
@@ -52,6 +58,7 @@ type Manager struct {
 	OnGameOver    func(gameID string, room *Room)
 	OnFlushEvents func(gameID string, room *Room)
 	OnTurnNotify  func(gameID string, agentID string)
+	OnBroadcast   func(gameID string, room *Room, events interface{})
 }
 
 // NewManager creates a new room manager.
@@ -62,8 +69,8 @@ func NewManager() *Manager {
 }
 
 // CreatePokerRoom creates a new poker game room.
-func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64, entryFee int) (*Room, error) {
-	g := poker.NewGame(gameID, playerIDs, seed)
+func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64, entryFee int, playerNames map[string]string) (*Room, error) {
+	g := poker.NewGame(gameID, playerIDs, seed, playerNames)
 
 	room := &Room{
 		GameID:    gameID,
@@ -79,9 +86,25 @@ func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64,
 	room.OnGameOver = m.OnGameOver
 	room.OnFlushEvents = m.OnFlushEvents
 	room.OnTurnNotify = m.OnTurnNotify
+	room.OnBroadcast = m.OnBroadcast
 
-	// Start the first hand
-	g.StartHand()
+	// Start the first hand and accumulate its events
+	firstHandEvents, _ := g.StartHand()
+	for _, evt := range firstHandEvents {
+		payload, _ := json.Marshal(evt.Data)
+		room.Events = append(room.Events, models.GameEvent{
+			GameID:    gameID,
+			SeqNum:    len(room.Events) + 1,
+			EventType: string(evt.Type),
+			Payload:   payload,
+			CreatedAt: time.Now(),
+		})
+	}
+
+	// Persist initial events before publishing room (prevents race with timer)
+	if room.OnFlushEvents != nil {
+		room.OnFlushEvents(gameID, room)
+	}
 
 	m.mu.Lock()
 	m.rooms[gameID] = room
@@ -158,9 +181,18 @@ func (r *Room) SubmitAction(playerID string, actionJSON json.RawMessage) (*Actio
 		return nil, err
 	}
 
+	// Persist events while holding lock (prevents race with timer callbacks)
+	if r.OnFlushEvents != nil {
+		r.OnFlushEvents(r.GameID, r)
+	}
+
 	// Manage turn timer after successful action
 	if result.GameOver {
 		r.StopTurnTimer()
+	} else if r.Poker.Phase == poker.PhaseIdle {
+		// Hand ended but game continues — schedule break before next hand
+		r.StopTurnTimer()
+		r.scheduleHandBreak()
 	} else {
 		r.ResetTurnTimer()
 	}
@@ -176,7 +208,9 @@ func (r *Room) GetState(playerID string) (interface{}, error) {
 	if r.Poker == nil {
 		return nil, fmt.Errorf("game not initialized")
 	}
-	return r.Poker.GetGameState(playerID), nil
+	state := r.Poker.GetGameState(playerID)
+	state.NextHandAt = r.NextHandAt
+	return state, nil
 }
 
 // GetSpectatorState returns the god-view state.
@@ -187,7 +221,9 @@ func (r *Room) GetSpectatorState() (interface{}, error) {
 	if r.Poker == nil {
 		return nil, fmt.Errorf("game not initialized")
 	}
-	return r.Poker.GetSpectatorState(), nil
+	state := r.Poker.GetSpectatorState()
+	state.NextHandAt = r.NextHandAt
+	return state, nil
 }
 
 // IsFinished returns whether the game has ended.
@@ -225,27 +261,6 @@ func (r *Room) submitPokerAction(playerID string, actionJSON json.RawMessage) (*
 			Payload:   payload,
 			CreatedAt: time.Now(),
 		})
-	}
-
-	// Auto-start next hand if current hand ended but game isn't over.
-	// Loop because a new hand may resolve immediately (e.g., both players
-	// all-in from blinds), leaving the phase idle again.
-	for r.Poker.Phase == poker.PhaseIdle && !r.Poker.Finished {
-		nextEvents, startErr := r.Poker.StartHand()
-		if startErr != nil {
-			break
-		}
-		events = append(events, nextEvents...)
-		for _, evt := range nextEvents {
-			payload, _ := json.Marshal(evt.Data)
-			r.Events = append(r.Events, models.GameEvent{
-				GameID:    r.GameID,
-				SeqNum:    len(r.Events) + 1,
-				EventType: string(evt.Type),
-				Payload:   payload,
-				CreatedAt: time.Now(),
-			})
-		}
 	}
 
 	result := &ActionResult{
@@ -286,6 +301,86 @@ func (r *Room) DrainNewEvents() (startSeq int, events []models.GameEvent) {
 	return startSeq, events
 }
 
+// scheduleHandBreak schedules the next hand to start after a delay.
+// Must be called with r.mu held.
+func (r *Room) scheduleHandBreak() {
+	if r.handBreakTimer != nil {
+		r.handBreakTimer.Stop()
+	}
+	t := time.Now().Add(handBreakDuration)
+	r.NextHandAt = &t
+	r.handBreakTimer = time.AfterFunc(handBreakDuration, r.startNextHand)
+}
+
+// startNextHand is fired by the hand break timer. It starts the next hand
+// and broadcasts the resulting events.
+func (r *Room) startNextHand() {
+	r.mu.Lock()
+
+	r.NextHandAt = nil
+	r.handBreakTimer = nil
+
+	if r.Poker == nil || r.Poker.Finished {
+		r.mu.Unlock()
+		return
+	}
+
+	events, err := r.Poker.StartHand()
+	if err != nil {
+		slog.Error("startNextHand failed", "game_id", r.GameID, "error", err)
+		r.mu.Unlock()
+		return
+	}
+
+	// Accumulate events
+	for _, evt := range events {
+		payload, _ := json.Marshal(evt.Data)
+		r.Events = append(r.Events, models.GameEvent{
+			GameID:    r.GameID,
+			SeqNum:    len(r.Events) + 1,
+			EventType: string(evt.Type),
+			Payload:   payload,
+			CreatedAt: time.Now(),
+		})
+	}
+
+	// Persist
+	if r.OnFlushEvents != nil {
+		r.OnFlushEvents(r.GameID, r)
+	}
+
+	// Determine next state
+	var gameOver bool
+	var nextActor string
+	if r.Poker.Finished {
+		r.Status = models.GameStatusFinished
+		gameOver = true
+	} else if r.Poker.Phase == poker.PhaseIdle {
+		// Instant resolution (e.g. blinds all-in) — schedule another break
+		r.scheduleHandBreak()
+	} else {
+		r.ResetTurnTimer()
+		nextActor = r.Poker.CurrentActor()
+	}
+
+	r.mu.Unlock()
+
+	// Broadcast outside lock
+	if r.OnBroadcast != nil {
+		r.OnBroadcast(r.GameID, r, events)
+	}
+
+	if gameOver {
+		if r.OnGameOver != nil {
+			r.OnGameOver(r.GameID, r)
+		}
+	} else if nextActor != "" {
+		if r.OnTurnNotify != nil {
+			r.OnTurnNotify(r.GameID, nextActor)
+		}
+	}
+}
+
 // ResetTurnTimer resets the turn timer. Should be called after each action.
 // Disconnected players get an immediate timeout (no 30s wait).
 func (r *Room) ResetTurnTimer() {
@@ -316,25 +411,31 @@ func (r *Room) ResetTurnTimer() {
 	})
 }
 
-// StopTurnTimer stops the turn timer.
+// StopTurnTimer stops the turn timer and any hand break timer.
 func (r *Room) StopTurnTimer() {
 	if r.turnTimer != nil {
 		r.turnTimer.Stop()
 		r.turnTimer = nil
 	}
+	if r.handBreakTimer != nil {
+		r.handBreakTimer.Stop()
+		r.handBreakTimer = nil
+	}
+	r.NextHandAt = nil
 }
 
 // handleTimeout submits a default action for the current actor.
 func (r *Room) handleTimeout() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	if r.Poker == nil || r.Poker.Finished {
+		r.mu.Unlock()
 		return
 	}
 
 	actor := r.Poker.CurrentActor()
 	if actor == "" {
+		r.mu.Unlock()
 		return
 	}
 
@@ -374,9 +475,11 @@ func (r *Room) handleTimeout() {
 
 	slog.Info("turn timeout", "game_id", r.GameID, "player", actor, "default_action", action.Type, "disconnected", p != nil && p.Disconnected)
 
-	_, err := r.submitPokerAction(actor, mustJSON(action))
+	result, err := r.submitPokerAction(actor, mustJSON(action))
 	if err != nil {
 		slog.Error("timeout action failed", "game_id", r.GameID, "error", err)
+		r.mu.Unlock()
+		return
 	}
 
 	// Persist new events from timeout action
@@ -384,19 +487,34 @@ func (r *Room) handleTimeout() {
 		r.OnFlushEvents(r.GameID, r)
 	}
 
-	// Check if game ended due to timeout action
+	// Determine next state
+	var gameOver bool
+	var nextActor string
 	if r.Poker.Finished {
-		if r.OnGameOver != nil {
-			go r.OnGameOver(r.GameID, r)
-		}
+		gameOver = true
+	} else if r.Poker.Phase == poker.PhaseIdle {
+		// Hand ended — schedule break before next hand
+		r.scheduleHandBreak()
 	} else {
-		// Notify next actor it's their turn
-		if r.OnTurnNotify != nil {
-			if nextActor := r.Poker.CurrentActor(); nextActor != "" {
-				go r.OnTurnNotify(r.GameID, nextActor)
-			}
-		}
+		nextActor = r.Poker.CurrentActor()
 		r.ResetTurnTimer()
+	}
+
+	r.mu.Unlock()
+
+	// Broadcast outside lock
+	if r.OnBroadcast != nil && result != nil {
+		r.OnBroadcast(r.GameID, r, result.Events)
+	}
+
+	if gameOver {
+		if r.OnGameOver != nil {
+			r.OnGameOver(r.GameID, r)
+		}
+	} else if nextActor != "" {
+		if r.OnTurnNotify != nil {
+			r.OnTurnNotify(r.GameID, nextActor)
+		}
 	}
 }
 
