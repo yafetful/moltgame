@@ -1,7 +1,7 @@
 import Image from "next/image";
 import PokerCard, { type Suit } from "./PokerCard";
 
-export type PlayerStatus = "normal" | "active" | "folded" | "allIn" | "winner";
+export type PlayerStatus = "normal" | "active" | "folded" | "allIn" | "winner" | "eliminated";
 export type PlayerRole = "D" | "SB" | "BB";
 
 export interface PlayerSeatProps {
@@ -25,6 +25,7 @@ const RING_COLOR: Record<PlayerStatus, string> = {
   folded: "#868686",
   allIn: "black",
   winner: "black",
+  eliminated: "#868686",
 };
 
 const CHIP_BG: Record<PlayerStatus, string> = {
@@ -33,6 +34,7 @@ const CHIP_BG: Record<PlayerStatus, string> = {
   folded: "bg-[#868686]",
   allIn: "bg-[#ff4343]",
   winner: "bg-[#00d74b]",
+  eliminated: "bg-[#868686]",
 };
 
 // SVG ring constants (64px diameter, 4px stroke)
@@ -119,31 +121,37 @@ export default function PlayerSeat({
   countdown,
 }: PlayerSeatProps) {
   const chipLabel =
-    status === "allIn" ? "ALL IN" : `$${chips.toLocaleString()}`;
+    status === "allIn"
+      ? "ALL IN"
+      : status === "eliminated"
+        ? "OUT"
+        : `$${chips.toLocaleString()}`;
 
   return (
-    <div className="relative flex w-[300px] flex-col items-center gap-1">
-      {/* Hand cards */}
-      <div className="relative flex justify-center gap-1">
-        {cards.map((c, i) => (
-          <div key={i} className="relative">
-            <PokerCard
-              suit={c.suit}
-              value={c.value}
-              faceDown={c.faceDown}
-              size="sm"
-            />
-          </div>
-        ))}
-        {/* Fold overlay centered on both cards */}
-        {status === "folded" && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="rounded-full bg-[#ff4343] px-2 py-1 text-xs font-medium text-white">
-              Fold
-            </span>
-          </div>
-        )}
-      </div>
+    <div className={`relative flex w-[300px] flex-col items-center gap-1 ${status === "eliminated" ? "opacity-50" : ""}`}>
+      {/* Hand cards — hidden when eliminated */}
+      {status !== "eliminated" && (
+        <div className="relative flex justify-center gap-1">
+          {cards.map((c, i) => (
+            <div key={i} className="relative">
+              <PokerCard
+                suit={c.suit}
+                value={c.value}
+                faceDown={c.faceDown}
+                size="sm"
+              />
+            </div>
+          ))}
+          {/* Fold overlay centered on both cards */}
+          {status === "folded" && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="rounded-full bg-[#ff4343] px-2 py-1 text-xs font-medium text-white">
+                Fold
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Player info row */}
       <div
@@ -166,7 +174,7 @@ export default function PlayerSeat({
                 alt={name}
                 width={56}
                 height={56}
-                className={`size-full object-cover ${status === "folded" ? "grayscale" : ""}`}
+                className={`size-full object-cover ${status === "folded" || status === "eliminated" ? "grayscale" : ""}`}
               />
             </div>
           </div>
@@ -193,7 +201,7 @@ export default function PlayerSeat({
       </div>
 
       {/* Role badges — centered under avatar */}
-      {roles.length > 0 && (
+      {roles.length > 0 && status !== "eliminated" && (
         <div
           className="absolute top-[118px] z-20 flex -translate-x-1/2 items-center"
           style={{ left: mirrored ? "calc(100% - 32px)" : 32 }}
@@ -214,7 +222,7 @@ export default function PlayerSeat({
       )}
 
       {/* Reason speech bubble — arrow points to avatar center */}
-      {status === "active" && reason && (
+      {reason && (
         <div
           className="absolute bottom-[68px] z-30"
           style={{ left: mirrored ? "calc(100% - 32px)" : 32 }}

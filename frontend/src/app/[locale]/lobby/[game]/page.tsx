@@ -3,9 +3,11 @@
 import { useTranslations } from "next-intl";
 import { useParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Nav from "@/components/Nav";
+import { fetchLiveGames, fetchRecentGames } from "@/lib/api";
+import type { LiveGame, RecentGame } from "@/lib/types";
 
 const GAME_CONFIG = {
   poker: {
@@ -26,13 +28,24 @@ const GAME_CONFIG = {
   },
 } as const;
 
-// Mock table data
-const MOCK_TABLES = Array.from({ length: 12 }, (_, i) => ({
-  id: String(12345678 + i),
-  time: "14:58",
-}));
-
 type Tab = "live" | "replay";
+
+function phaseLabel(phase: string): string {
+  switch (phase) {
+    case "preflop":
+      return "Pre-flop";
+    case "flop":
+      return "Flop";
+    case "turn":
+      return "Turn";
+    case "river":
+      return "River";
+    case "showdown":
+      return "Showdown";
+    default:
+      return phase;
+  }
+}
 
 export default function GameLobby() {
   const t = useTranslations("lobby");
@@ -40,11 +53,25 @@ export default function GameLobby() {
   const gameSlug = params.game as keyof typeof GAME_CONFIG;
   const [tab, setTab] = useState<Tab>("live");
 
+  const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
+  const [recentGames, setRecentGames] = useState<RecentGame[]>([]);
+
+  useEffect(() => {
+    fetchLiveGames().then(setLiveGames);
+    fetchRecentGames().then(setRecentGames);
+
+    // Poll live games every 10s
+    const interval = setInterval(() => {
+      fetchLiveGames().then(setLiveGames);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const config = GAME_CONFIG[gameSlug];
   if (!config) return null;
 
-  const liveCount = 123;
-  const replayCount = 1847;
+  const liveCount = liveGames.length;
+  const replayCount = recentGames.length;
 
   return (
     <main className="min-h-screen bg-[#fff2eb]">
@@ -118,31 +145,79 @@ export default function GameLobby() {
           className="justify-center gap-x-[35px] gap-y-16 px-8 py-16"
           style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, 200px)" }}
         >
-          {MOCK_TABLES.map((table, i) => (
-            <Link
-              key={i}
-              href={`/game/${table.id}`}
-              className={`relative block overflow-hidden transition-transform hover:scale-105 ${
-                config.type === "decorated"
-                  ? "h-[128px] w-[200px] rounded-[32px] border-3 border-black bg-[#906c4a]"
-                  : "h-[96px] w-[200px]"
-              }`}
-            >
-              <img
-                src={config.tableImage}
-                alt=""
-                className={`pointer-events-none absolute ${
+          {tab === "live" &&
+            liveGames.map((game) => (
+              <Link
+                key={game.game_id}
+                href={`/game/${game.game_id}`}
+                className={`relative block overflow-hidden transition-transform hover:scale-105 ${
                   config.type === "decorated"
-                    ? "inset-[11%_18%] h-[78%] w-[64%] object-contain"
-                    : "inset-0 size-full"
+                    ? "h-[128px] w-[200px] rounded-[32px] border-3 border-black bg-[#906c4a]"
+                    : "h-[96px] w-[200px]"
                 }`}
-              />
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-white">
-                <p className="font-medium text-xs">#{table.id}</p>
-                <p className="font-semibold text-lg">{table.time}</p>
-              </div>
-            </Link>
-          ))}
+              >
+                <img
+                  src={config.tableImage}
+                  alt=""
+                  className={`pointer-events-none absolute ${
+                    config.type === "decorated"
+                      ? "inset-[11%_18%] h-[78%] w-[64%] object-contain"
+                      : "inset-0 size-full"
+                  }`}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-white">
+                  <p className="font-medium text-xs">#{game.game_id.slice(0, 8)}</p>
+                  <p className="font-semibold text-lg">{phaseLabel(game.phase)}</p>
+                  <p className="text-xs opacity-70">Hand #{game.hand_num}</p>
+                </div>
+              </Link>
+            ))}
+
+          {tab === "replay" &&
+            recentGames.map((game) => (
+              <Link
+                key={game.game_id}
+                href={`/game/${game.game_id}`}
+                className={`relative block overflow-hidden transition-transform hover:scale-105 ${
+                  config.type === "decorated"
+                    ? "h-[128px] w-[200px] rounded-[32px] border-3 border-black bg-[#906c4a]"
+                    : "h-[96px] w-[200px]"
+                }`}
+              >
+                <img
+                  src={config.tableImage}
+                  alt=""
+                  className={`pointer-events-none absolute ${
+                    config.type === "decorated"
+                      ? "inset-[11%_18%] h-[78%] w-[64%] object-contain"
+                      : "inset-0 size-full"
+                  }`}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-white">
+                  <p className="font-medium text-xs">#{game.game_id.slice(0, 8)}</p>
+                  <p className="font-semibold text-sm">
+                    {game.winner_name || "—"}
+                  </p>
+                  {game.finished_at && (
+                    <p className="text-xs opacity-70">
+                      {new Date(game.finished_at).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              </Link>
+            ))}
+
+          {tab === "live" && liveGames.length === 0 && (
+            <p className="col-span-full py-16 text-center text-black/40">
+              No live games
+            </p>
+          )}
+
+          {tab === "replay" && recentGames.length === 0 && (
+            <p className="col-span-full py-16 text-center text-black/40">
+              No recent games
+            </p>
+          )}
         </div>
       </div>
     </main>

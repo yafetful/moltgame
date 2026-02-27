@@ -1,7 +1,11 @@
+"use client";
+
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import Nav from "@/components/Nav";
 import Image from "next/image";
+import { useEffect, useState } from "react";
+import { fetchLiveGames, fetchRecentGames } from "@/lib/api";
 
 const GAMES = [
   {
@@ -10,8 +14,6 @@ const GAMES = [
     slug: "poker",
     icon: "/icons/poker.png",
     scene: "/images/scene-poker.png",
-    liveGames: 123,
-    gamesPlayed: 1847,
   },
   {
     key: "werewolf" as const,
@@ -19,13 +21,18 @@ const GAMES = [
     slug: "werewolf",
     icon: "/icons/werewolves.png",
     scene: "/images/scene-werewolf.png",
-    liveGames: 123,
-    gamesPlayed: 1847,
   },
 ];
 
 export default function Lobby() {
   const t = useTranslations("lobby");
+  const [liveCount, setLiveCount] = useState(0);
+  const [recentCount, setRecentCount] = useState(0);
+
+  useEffect(() => {
+    fetchLiveGames().then((g) => setLiveCount(g.length));
+    fetchRecentGames().then((g) => setRecentCount(g.length));
+  }, []);
 
   return (
     <main className="min-h-screen bg-[#fff2eb]">
@@ -66,7 +73,7 @@ export default function Lobby() {
                     {t("liveGames")}
                   </p>
                   <p className="font-black text-3xl text-black">
-                    {game.liveGames}
+                    {liveCount}
                   </p>
                 </div>
                 <div className="flex flex-col items-center gap-1">
@@ -74,7 +81,7 @@ export default function Lobby() {
                     {t("gamesPlayed")}
                   </p>
                   <p className="font-black text-3xl text-black">
-                    {game.gamesPlayed.toLocaleString()}
+                    {recentCount.toLocaleString()}
                   </p>
                 </div>
               </div>

@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Nav from "@/components/Nav";
 import PokerTable from "@/components/poker/PokerTable";
 import PlayerSeat from "@/components/poker/PlayerSeat";
@@ -13,6 +14,16 @@ import type {
   BetPosition,
   Stage,
 } from "@/components/poker/PokerTable";
+import type { ApiGameState } from "@/lib/types";
+import {
+  fetchSpectatorState,
+  fetchGameEvents,
+  spectateWsUrl,
+} from "@/lib/api";
+import { parseCards } from "@/lib/cardUtils";
+import { buildReplayFrames } from "@/lib/replayEngine";
+import type { ReplayFrame } from "@/lib/replayEngine";
+import type { PlayerRole } from "@/components/poker/PlayerSeat";
 
 // ─── Seat positions (relative to 1440x684 game area) ───
 const SEAT_POSITIONS: {
@@ -28,107 +39,471 @@ const SEAT_POSITIONS: {
   { left: 0, top: 175, mirrored: true }, // seat 5 — left-top
 ];
 
-// ─── Mock data: Flop stage ───
-const MOCK_STAGE: Stage = "flop";
-
-const MOCK_COMMUNITY: CommunityCard[] = [
-  { suit: "hearts", value: 3, faceDown: false },
-  { suit: "spades", value: 8, faceDown: false },
-  { suit: "diamonds", value: 10, faceDown: false },
-  { suit: "clubs", value: 1, faceDown: true },
-  { suit: "clubs", value: 1, faceDown: true },
+// Avatar assignments per seat
+const SEAT_AVATARS = [
+  "/avatars/01-fox.png",
+  "/avatars/02-koala.png",
+  "/avatars/03-owl.png",
+  "/avatars/04-cat.png",
+  "/avatars/05-bear.png",
+  "/avatars/06-rabbit.png",
 ];
 
-const MOCK_BETS: BetPosition[] = [
-  { seatIndex: 0, amount: 200, chipIcon: "/chips/chip1.svg", action: "call" },
-  { seatIndex: 1, amount: 400, chipIcon: "/chips/chip2.svg", action: "raise" },
-  { seatIndex: 2, amount: 0, action: "fold" },
-  { seatIndex: 3, amount: 200, chipIcon: "/chips/chip3.svg", action: "call" },
-  { seatIndex: 4, amount: 800, chipIcon: "/chips/chip4.svg", action: "allIn" },
-  { seatIndex: 5, amount: 200, chipIcon: "/chips/chip5.svg", action: "check" },
+const SPEED_OPTIONS = [
+  { label: "0.5x", ms: 2000 },
+  { label: "1x", ms: 1000 },
+  { label: "2x", ms: 500 },
+  { label: "4x", ms: 250 },
 ];
 
-const MOCK_PLAYERS: Omit<PlayerSeatProps, "mirrored">[] = [
-  {
-    name: "FoxAgent",
-    model: "GPT-4o",
-    avatar: "/avatars/01-fox.png",
-    chips: 1800,
-    status: "normal",
-    roles: ["D"],
-    cards: [
-      { suit: "hearts", value: 1 },
-      { suit: "spades", value: 13 },
-    ],
-  },
-  {
-    name: "KoalaBot",
-    model: "Claude 3.5",
-    avatar: "/avatars/02-koala.png",
-    chips: 2400,
-    status: "active",
-    roles: ["D", "BB"],
-    cards: [
-      { suit: "diamonds", value: 10 },
-      { suit: "clubs", value: 10 },
-    ],
-    reason: "Strong pair, raising for value",
-    countdown: 0.65,
-  },
-  {
-    name: "OwlMind",
-    model: "Gemini Pro",
-    avatar: "/avatars/03-owl.png",
-    chips: 900,
-    status: "folded",
-    roles: [],
-    cards: [
-      { suit: "hearts", value: 7, faceDown: true },
-      { suit: "diamonds", value: 2, faceDown: true },
-    ],
-  },
-  {
-    name: "CatPlay",
-    model: "GPT-4o",
-    avatar: "/avatars/04-cat.png",
-    chips: 3200,
-    status: "winner",
-    roles: [],
-    cards: [
-      { suit: "spades", value: 1 },
-      { suit: "hearts", value: 1 },
-    ],
-  },
-  {
-    name: "BearForce",
-    model: "Claude 3.5",
-    avatar: "/avatars/05-bear.png",
-    chips: 0,
-    status: "allIn",
-    roles: [],
-    cards: [
-      { suit: "clubs", value: 12 },
-      { suit: "diamonds", value: 12 },
-    ],
-  },
-  {
-    name: "RabbitAI",
-    model: "Llama 3.1",
-    avatar: "/avatars/06-rabbit.png",
-    chips: 1500,
-    status: "normal",
-    roles: ["SB"],
-    cards: [
-      { suit: "spades", value: 5 },
-      { suit: "hearts", value: 9 },
-    ],
-  },
-];
+const TURN_TIMEOUT = 30_000; // 30s, matches backend turnTimeout
+
+// ─── Map API state to component props ───
+
+function mapPhase(phase: string): Stage {
+  switch (phase) {
+    case "preflop":
+      return "preflop";
+    case "flop":
+      return "flop";
+    case "turn":
+      return "turn";
+    case "river":
+    case "showdown":
+      return "river";
+    default:
+      return "starting";
+  }
+}
+
+function mapStageLabel(phase: string): string {
+  switch (phase) {
+    case "preflop":
+      return "Pre-flop";
+    case "flop":
+      return "Flop";
+    case "turn":
+      return "Turn";
+    case "river":
+      return "River";
+    case "showdown":
+      return "Showdown";
+    default:
+      return "";
+  }
+}
+
+function mapPlayerStatus(
+  p: ApiGameState["players"][number],
+  actionOn: number,
+): PlayerSeatProps["status"] {
+  if (p.eliminated) return "eliminated";
+  if (p.folded) return "folded";
+  if (p.all_in) return "allIn";
+  if (p.seat === actionOn) return "active";
+  return "normal";
+}
+
+function mapPlayerRoles(
+  seat: number,
+  dealerSeat: number,
+  sbSeat: number,
+  bbSeat: number,
+): PlayerRole[] {
+  const roles: PlayerRole[] = [];
+  if (seat === dealerSeat) roles.push("D");
+  if (seat === sbSeat) roles.push("SB");
+  if (seat === bbSeat) roles.push("BB");
+  return roles;
+}
+
+function calcBlindSeats(
+  players: ApiGameState["players"],
+  dealerSeat: number,
+): { sb: number; bb: number } {
+  const alive = players.filter((p) => !p.eliminated);
+  if (alive.length <= 1) return { sb: -1, bb: -1 };
+
+  if (alive.length === 2) {
+    const sbSeat = dealerSeat;
+    const bbSeat = alive.find((p) => p.seat !== dealerSeat)!.seat;
+    return { sb: sbSeat, bb: bbSeat };
+  }
+
+  const sortedAlive = [...alive].sort((a, b) => a.seat - b.seat);
+  const findNext = (after: number) => {
+    const n = players.length;
+    for (let i = 1; i < n; i++) {
+      const seat = (after + i) % n;
+      if (sortedAlive.some((p) => p.seat === seat)) return seat;
+    }
+    return after;
+  };
+  const sb = findNext(dealerSeat);
+  const bb = findNext(sb);
+  return { sb, bb };
+}
+
+function apiStateToProps(state: ApiGameState) {
+  const stage = mapPhase(state.phase);
+  const stageLabel = mapStageLabel(state.phase);
+
+  const communityCards: CommunityCard[] = [];
+  const totalSlots = 5;
+  const dealt = state.community?.length || 0;
+  for (let i = 0; i < totalSlots; i++) {
+    if (i < dealt) {
+      const parsed = parseCards([state.community[i]])[0];
+      communityCards.push({ ...parsed, faceDown: false });
+    } else {
+      communityCards.push({ suit: "clubs", value: 1, faceDown: true });
+    }
+  }
+
+  const pot = state.pots?.reduce((sum, p) => sum + p.amount, 0) || 0;
+
+  const { sb: sbSeat, bb: bbSeat } = calcBlindSeats(
+    state.players,
+    state.dealer_seat,
+  );
+
+  const players: Omit<PlayerSeatProps, "mirrored">[] = state.players.map(
+    (p) => {
+      const status = mapPlayerStatus(p, state.action_on);
+      const cards = p.hole
+        ? parseCards(p.hole).map((c) => ({
+            ...c,
+            faceDown: p.folded,
+          }))
+        : [
+            { suit: "clubs" as const, value: 1, faceDown: true },
+            { suit: "clubs" as const, value: 1, faceDown: true },
+          ];
+
+      return {
+        name: p.name || `Player ${p.seat + 1}`,
+        model: "",
+        avatar: SEAT_AVATARS[p.seat % SEAT_AVATARS.length],
+        chips: p.chips,
+        status,
+        roles: mapPlayerRoles(p.seat, state.dealer_seat, sbSeat, bbSeat),
+        cards,
+      };
+    },
+  );
+
+  const bets: BetPosition[] = state.players
+    .filter((p) => p.bet > 0)
+    .map((p) => ({
+      seatIndex: p.seat,
+      amount: p.bet,
+    }));
+
+  return { stage, stageLabel, communityCards, pot, players, bets };
+}
+
+// ─── Replay Controls ───
+
+function ReplayControls({
+  frameIdx,
+  totalFrames,
+  playing,
+  speedIdx,
+  label,
+  onPlay,
+  onPause,
+  onStep,
+  onStepBack,
+  onSeek,
+  onSpeed,
+}: {
+  frameIdx: number;
+  totalFrames: number;
+  playing: boolean;
+  speedIdx: number;
+  label: string;
+  onPlay: () => void;
+  onPause: () => void;
+  onStep: () => void;
+  onStepBack: () => void;
+  onSeek: (idx: number) => void;
+  onSpeed: () => void;
+}) {
+  return (
+    <div className="mx-auto mt-2 flex max-w-[720px] flex-col gap-2">
+      {/* Action label */}
+      <div className="text-center text-sm font-medium text-black/70">
+        {label}
+      </div>
+
+      {/* Timeline slider */}
+      <input
+        type="range"
+        min={0}
+        max={totalFrames - 1}
+        value={frameIdx}
+        onChange={(e) => onSeek(Number(e.target.value))}
+        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-black"
+      />
+
+      {/* Controls row */}
+      <div className="flex items-center justify-center gap-3">
+        <button
+          onClick={onStepBack}
+          disabled={frameIdx <= 0}
+          className="rounded-full bg-black/10 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-black/20 disabled:opacity-30"
+        >
+          Prev
+        </button>
+
+        <button
+          onClick={playing ? onPause : onPlay}
+          className="rounded-full bg-black px-5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-black/80"
+        >
+          {playing ? "Pause" : "Play"}
+        </button>
+
+        <button
+          onClick={onStep}
+          disabled={frameIdx >= totalFrames - 1}
+          className="rounded-full bg-black/10 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-black/20 disabled:opacity-30"
+        >
+          Next
+        </button>
+
+        <button
+          onClick={onSpeed}
+          className="rounded-full bg-black/10 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-black/20"
+        >
+          {SPEED_OPTIONS[speedIdx].label}
+        </button>
+
+        <span className="text-xs text-black/50">
+          {frameIdx + 1} / {totalFrames}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ───
 
 export default function GamePage() {
   const t = useTranslations("game");
   const params = useParams();
   const gameId = params.id as string;
+
+  // Shared
+  const [error, setError] = useState<string | null>(null);
+
+  // Live mode
+  const [liveState, setLiveState] = useState<ApiGameState | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Replay mode
+  const [isReplay, setIsReplay] = useState(false);
+  const [frames, setFrames] = useState<ReplayFrame[]>([]);
+  const [frameIdx, setFrameIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speedIdx, setSpeedIdx] = useState(1); // default 1x
+  const playTimer = useRef<ReturnType<typeof setInterval>>(undefined);
+
+  // Hand break countdown (between hands)
+  const [handBreakCountdown, setHandBreakCountdown] = useState<
+    number | undefined
+  >(undefined);
+
+  // Countdown ring & reason tooltip (live mode)
+  const [countdown, setCountdown] = useState(1);
+  const [lastActionInfo, setLastActionInfo] = useState<{
+    seat: number;
+    reason: string;
+  } | null>(null);
+  const turnStartRef = useRef(Date.now());
+  const reasonTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Current state for display
+  const currentState = isReplay
+    ? frames[frameIdx]?.state ?? null
+    : liveState;
+
+  // ─── Live WebSocket ───
+  const connectWs = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    const ws = new WebSocket(spectateWsUrl(gameId));
+    wsRef.current = ws;
+
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === "state" && msg.payload) {
+          setLiveState(msg.payload as ApiGameState);
+          setError(null);
+        } else if (msg.type === "event" && msg.payload) {
+          // Events array from poker engine (includes player_action with reason)
+          const events = Array.isArray(msg.payload)
+            ? msg.payload
+            : [msg.payload];
+          for (const event of events) {
+            if (event.type === "player_action" && event.data?.reason) {
+              setLastActionInfo({
+                seat: event.data.seat,
+                reason: event.data.reason,
+              });
+              clearTimeout(reasonTimeoutRef.current);
+              reasonTimeoutRef.current = setTimeout(
+                () => setLastActionInfo(null),
+                5000,
+              );
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    ws.onclose = () => {
+      reconnectTimer.current = setTimeout(connectWs, 3000);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }, [gameId]);
+
+  // ─── Initialize: decide live vs replay ───
+  useEffect(() => {
+    fetchSpectatorState(gameId).then((s) => {
+      if (!s) {
+        setError("Game not found");
+        return;
+      }
+
+      if (s.finished) {
+        // Replay mode — load events and build frames
+        setIsReplay(true);
+        // Extract player names from the finished state
+        const names: Record<string, string> = {};
+        for (const p of s.players) {
+          if (p.id && p.name) names[p.id] = p.name;
+        }
+        fetchGameEvents(gameId).then((events) => {
+          const built = buildReplayFrames(gameId, events, names);
+          if (built.length > 0) {
+            setFrames(built);
+            setFrameIdx(0);
+          } else {
+            // No frames built — show final state
+            setLiveState(s);
+          }
+        });
+      } else {
+        // Live mode
+        setLiveState(s);
+        connectWs();
+      }
+    });
+
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      clearTimeout(reasonTimeoutRef.current);
+      wsRef.current?.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId]);
+
+  // ─── Replay playback timer ───
+  useEffect(() => {
+    if (playing && frames.length > 0) {
+      playTimer.current = setInterval(() => {
+        setFrameIdx((prev) => {
+          if (prev >= frames.length - 1) {
+            setPlaying(false);
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, SPEED_OPTIONS[speedIdx].ms);
+    }
+    return () => clearInterval(playTimer.current);
+  }, [playing, speedIdx, frames.length]);
+
+  // ─── Countdown ring: reset when turn changes ───
+  useEffect(() => {
+    if (!currentState || currentState.action_on < 0) return;
+    turnStartRef.current = Date.now();
+    setCountdown(1);
+  }, [currentState?.action_on, currentState?.hand_num, currentState?.phase]);
+
+  // ─── Countdown ring: animate in live mode ───
+  useEffect(() => {
+    if (
+      isReplay ||
+      !currentState ||
+      currentState.action_on < 0 ||
+      currentState.finished
+    ) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - turnStartRef.current;
+      setCountdown(Math.max(0, 1 - elapsed / TURN_TIMEOUT));
+    }, 100);
+
+    return () => clearInterval(timer);
+  }, [
+    isReplay,
+    currentState?.action_on,
+    currentState?.hand_num,
+    currentState?.phase,
+    currentState?.finished,
+  ]);
+
+  // ─── Hand break countdown ───
+  useEffect(() => {
+    if (isReplay || !liveState) {
+      setHandBreakCountdown(undefined);
+      return;
+    }
+    const isBreak =
+      liveState.phase === "idle" &&
+      !liveState.finished &&
+      !!liveState.next_hand_at;
+
+    if (!isBreak) {
+      setHandBreakCountdown(undefined);
+      return;
+    }
+
+    const target = Date.parse(liveState.next_hand_at!);
+    const calc = () =>
+      Math.max(0, Math.ceil((target - Date.now()) / 1000));
+
+    setHandBreakCountdown(calc());
+    const timer = setInterval(() => {
+      const remaining = calc();
+      setHandBreakCountdown(remaining);
+      if (remaining <= 0) clearInterval(timer);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [
+    isReplay,
+    liveState?.phase,
+    liveState?.finished,
+    liveState?.next_hand_at,
+  ]);
+
+  // Derive display props
+  const display = currentState ? apiStateToProps(currentState) : null;
+  const replayLabel = isReplay && frames[frameIdx]
+    ? frames[frameIdx].label
+    : "";
+  const replayFrame = isReplay ? frames[frameIdx] : null;
 
   return (
     <main className="min-h-screen bg-[#e8f5e9]">
@@ -136,7 +511,6 @@ export default function GamePage() {
 
       {/* Header */}
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-8">
-        {/* Left: Back + poker icon + game ID */}
         <div className="flex items-center gap-4">
           <Link
             href="/lobby/poker"
@@ -158,56 +532,126 @@ export default function GamePage() {
               className="size-8 object-contain"
             />
             <span className="text-lg font-semibold text-black">
-              #{gameId}
+              #{gameId.slice(0, 8)}
             </span>
           </div>
+          {isReplay && (
+            <span className="rounded-full bg-black/10 px-3 py-1 text-xs font-semibold text-black/60">
+              REPLAY
+            </span>
+          )}
         </div>
 
-        {/* Right: Timer + Decision */}
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-black/60">
-            {t("live")} 14:58
-          </span>
-          <span className="text-sm font-semibold text-black">
-            {t("decision")}
-          </span>
+          {currentState && (
+            <>
+              <span className="text-sm font-medium text-black/60">
+                Hand #{currentState.hand_num}
+              </span>
+              <span className="text-sm font-semibold text-black">
+                {currentState.finished
+                  ? "Finished"
+                  : mapStageLabel(currentState.phase)}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
       {/* Game area */}
       <div className="mx-auto mt-4 max-w-[1440px] px-8 pb-16">
-        <div className="relative mx-auto h-[684px] w-[1440px]">
-          {/* Poker table (centered) */}
-          <div
-            className="absolute"
-            style={{ left: 360, top: 162 }}
-          >
-            <PokerTable
-              stage={MOCK_STAGE}
-              stageLabel="Flop"
-              communityCards={MOCK_COMMUNITY}
-              pot={1250}
-              bets={MOCK_BETS}
-            />
+        {error && !currentState && (
+          <div className="flex h-[400px] items-center justify-center">
+            <p className="text-lg text-black/60">{error}</p>
           </div>
+        )}
 
-          {/* Player seats */}
-          {MOCK_PLAYERS.map((player, i) => (
-            <div
-              key={i}
-              className="absolute"
-              style={{
-                left: SEAT_POSITIONS[i].left,
-                top: SEAT_POSITIONS[i].top,
-              }}
-            >
-              <PlayerSeat
-                {...player}
-                mirrored={SEAT_POSITIONS[i].mirrored}
+        {display && (
+          <div className="relative mx-auto h-[684px] w-[1440px]">
+            <div className="absolute" style={{ left: 360, top: 162 }}>
+              <PokerTable
+                stage={display.stage}
+                stageLabel={display.stageLabel}
+                handNumber={
+                  currentState
+                    ? handBreakCountdown !== undefined
+                      ? `Next Hand #${currentState.hand_num + 1}`
+                      : `Hand #${currentState.hand_num}`
+                    : undefined
+                }
+                countdown={handBreakCountdown}
+                communityCards={display.communityCards}
+                pot={display.pot}
+                bets={display.bets}
               />
             </div>
-          ))}
-        </div>
+
+            {display.players.map((player, i) => (
+              <div
+                key={i}
+                className="absolute"
+                style={{
+                  left: SEAT_POSITIONS[i]?.left ?? 0,
+                  top: SEAT_POSITIONS[i]?.top ?? 0,
+                }}
+              >
+                <PlayerSeat
+                  {...player}
+                  mirrored={SEAT_POSITIONS[i]?.mirrored ?? false}
+                  countdown={
+                    !isReplay && player.status === "active"
+                      ? countdown
+                      : undefined
+                  }
+                  reason={
+                    replayFrame?.actionSeat === i
+                      ? replayFrame.reason
+                      : lastActionInfo?.seat === i
+                        ? lastActionInfo.reason
+                        : undefined
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!display && !error && (
+          <div className="flex h-[400px] items-center justify-center">
+            <p className="text-lg text-black/60">Loading...</p>
+          </div>
+        )}
+
+        {/* Replay controls */}
+        {isReplay && frames.length > 0 && (
+          <ReplayControls
+            frameIdx={frameIdx}
+            totalFrames={frames.length}
+            playing={playing}
+            speedIdx={speedIdx}
+            label={replayLabel}
+            onPlay={() => {
+              if (frameIdx >= frames.length - 1) setFrameIdx(0);
+              setPlaying(true);
+            }}
+            onPause={() => setPlaying(false)}
+            onStep={() => {
+              setPlaying(false);
+              setFrameIdx((i) => Math.min(i + 1, frames.length - 1));
+            }}
+            onStepBack={() => {
+              setPlaying(false);
+              setFrameIdx((i) => Math.max(i - 1, 0));
+            }}
+            onSeek={(idx) => {
+              setPlaying(false);
+              setFrameIdx(idx);
+            }}
+            onSpeed={() =>
+              setSpeedIdx((i) => (i + 1) % SPEED_OPTIONS.length)
+            }
+          />
+        )}
       </div>
     </main>
   );
