@@ -25,8 +25,8 @@ backend/test-structured
 coverage.out
 
 # Node / Next.js
-frontend/node_modules/
-frontend/.next/
+node_modules/
+.next/
 frontend/out/
 
 # Environment
