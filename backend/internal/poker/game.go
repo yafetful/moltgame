@@ -52,11 +52,13 @@ type Game struct {
 }
 
 // NewGame creates a new poker tournament game.
-func NewGame(id string, playerIDs []string, seed int64) *Game {
+// playerNames is optional: maps player ID → display name.
+func NewGame(id string, playerIDs []string, seed int64, playerNames map[string]string) *Game {
 	players := make([]*Player, len(playerIDs))
 	for i, pid := range playerIDs {
 		players[i] = &Player{
 			ID:    pid,
+			Name:  playerNames[pid],
 			Seat:  i,
 			Chips: StartingChips,
 		}
@@ -86,10 +88,9 @@ func (g *Game) StartHand() ([]Event, error) {
 	g.HandNum++
 	g.Events = nil
 
-	// M3: Dead Button — advance by one physical seat each hand
-	// (the button may land on an eliminated player)
+	// Moving Button — dealer always advances to the next alive player
 	if g.HandNum > 1 {
-		g.DealerIdx = (g.DealerIdx + 1) % len(g.Players)
+		g.DealerIdx = g.nextSeatAfter(g.DealerIdx)
 	}
 
 	// Reset per-hand player state
@@ -246,6 +247,7 @@ func (g *Game) GetGameState(playerID string) GameState {
 		Finished:   g.Finished,
 		Community:  g.Community,
 		CurrentBet: g.CurrentBet,
+		DealerSeat: g.DealerIdx,
 		Pots:       g.currentPots(),
 		ActionOn:   -1,
 		Players:    make([]PlayerState, 0, len(g.Players)),
@@ -262,6 +264,7 @@ func (g *Game) GetGameState(playerID string) GameState {
 	for _, p := range g.Players {
 		ps := PlayerState{
 			ID:           p.ID,
+			Name:         p.Name,
 			Seat:         p.Seat,
 			Chips:        p.Chips,
 			Bet:          p.Bet,      // m2: current round bet

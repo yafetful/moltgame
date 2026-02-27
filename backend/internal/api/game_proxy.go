@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -23,14 +24,16 @@ const natsTimeout = 3 * time.Second
 type GameProxyHandler struct {
 	nats       *natsClient.Client
 	gameRepo   *gameRepo.Repository
+	agentRepo  *auth.AgentRepository
 	settlement *gameRepo.SettlementService
 }
 
 // NewGameProxyHandler creates a new game proxy handler.
-func NewGameProxyHandler(nc *natsClient.Client, repo *gameRepo.Repository, settlement *gameRepo.SettlementService) *GameProxyHandler {
+func NewGameProxyHandler(nc *natsClient.Client, repo *gameRepo.Repository, agentRepo *auth.AgentRepository, settlement *gameRepo.SettlementService) *GameProxyHandler {
 	return &GameProxyHandler{
 		nats:       nc,
 		gameRepo:   repo,
+		agentRepo:  agentRepo,
 		settlement: settlement,
 	}
 }
@@ -93,14 +96,23 @@ func (h *GameProxyHandler) CreateGame(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Look up agent names for display
+	playerNames := make(map[string]string)
+	for _, id := range req.PlayerIDs {
+		if agent, err := h.agentRepo.GetAgentByID(r.Context(), id); err == nil {
+			playerNames[id] = agent.Name
+		}
+	}
+
 	// Create room via NATS
 	seed := cryptoSeed()
 	var resp natsClient.CreateRoomResponse
 	err = h.nats.RequestJSON(natsClient.SubjectPokerRoomCreate, natsClient.CreateRoomRequest{
-		GameID:    dbGame.ID,
-		PlayerIDs: req.PlayerIDs,
-		Seed:      seed,
-		EntryFee:  req.EntryFee,
+		GameID:      dbGame.ID,
+		PlayerIDs:   req.PlayerIDs,
+		PlayerNames: playerNames,
+		Seed:        seed,
+		EntryFee:    req.EntryFee,
 	}, &resp, natsTimeout)
 	if err != nil {
 		httputil.Error(w, http.StatusServiceUnavailable, "engine_unavailable", "Poker engine unavailable")
@@ -173,24 +185,31 @@ func (h *GameProxyHandler) GetGameState(w http.ResponseWriter, r *http.Request) 
 }
 
 // GetSpectatorState proxies spectator state request.
+// For live games, proxies via NATS. For finished games (room cleaned up), rebuilds from DB events.
 // GET /api/v1/games/{id}/spectate
 func (h *GameProxyHandler) GetSpectatorState(w http.ResponseWriter, r *http.Request) {
 	gameID := chi.URLParam(r, "id")
 
+	// Try live game first via NATS
 	var resp natsClient.StateResponse
 	err := h.nats.RequestJSON(natsClient.SubjectPokerRoomSpectate(gameID), struct{}{}, &resp, natsTimeout)
-	if err != nil {
-		httputil.Error(w, http.StatusServiceUnavailable, "engine_unavailable", "Poker engine unavailable")
+	if err == nil && resp.Success {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp.State)
 		return
 	}
-	if !resp.Success {
-		httputil.Error(w, http.StatusNotFound, "game_not_found", resp.Error)
+
+	// NATS failed — check if this is a finished game in DB
+	stateJSON, err := h.rebuildFinishedGameState(r.Context(), gameID)
+	if err != nil {
+		httputil.Error(w, http.StatusNotFound, "game_not_found", "Game not found")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp.State)
+	w.Write(stateJSON)
 }
 
 // ListLiveGames proxies live games list request.
@@ -431,3 +450,223 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// rebuildFinishedGameState reconstructs the final game state from DB events.
+// Used when a finished game's room has been cleaned up from poker-engine.
+func (h *GameProxyHandler) rebuildFinishedGameState(ctx context.Context, gameID string) (json.RawMessage, error) {
+	// Verify game exists and is finished
+	game, err := h.gameRepo.GetGame(ctx, gameID)
+	if err != nil || game.Status != models.GameStatusFinished {
+		return nil, fmt.Errorf("game not found or not finished")
+	}
+
+	events, err := h.gameRepo.GetGameEvents(ctx, gameID)
+	if err != nil || len(events) == 0 {
+		return nil, fmt.Errorf("no events found")
+	}
+
+	// Walk events to extract final state
+	type playerInfo struct {
+		ID         string   `json:"id"`
+		Name       string   `json:"name,omitempty"`
+		Seat       int      `json:"seat"`
+		Chips      int      `json:"chips"`
+		Hole       []string `json:"hole,omitempty"`
+		Folded     bool     `json:"folded"`
+		AllIn      bool     `json:"all_in"`
+		Eliminated bool     `json:"eliminated"`
+	}
+
+	players := make(map[int]*playerInfo)    // seat → info
+	var community []string
+	var handNum, dealerSeat, smallBlind, bigBlind int
+	var lastPhase string
+
+	for _, evt := range events {
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal(evt.Payload, &payload); err != nil {
+			continue
+		}
+
+		switch evt.EventType {
+		case "hand_start":
+			// Reset per-hand state
+			for _, p := range players {
+				p.Folded = false
+				p.AllIn = false
+				p.Hole = nil
+			}
+			community = nil
+			lastPhase = "preflop"
+
+			if v, ok := payload["hand_num"]; ok {
+				json.Unmarshal(v, &handNum)
+			}
+			if v, ok := payload["dealer_seat"]; ok {
+				json.Unmarshal(v, &dealerSeat)
+			}
+			if v, ok := payload["small_blind"]; ok {
+				json.Unmarshal(v, &smallBlind)
+			}
+			if v, ok := payload["big_blind"]; ok {
+				json.Unmarshal(v, &bigBlind)
+			}
+			if v, ok := payload["players"]; ok {
+				var pList []struct {
+					ID    string `json:"id"`
+					Seat  int    `json:"seat"`
+					Chips int    `json:"chips"`
+				}
+				if json.Unmarshal(v, &pList) == nil {
+					for _, p := range pList {
+						if players[p.Seat] == nil {
+							players[p.Seat] = &playerInfo{}
+						}
+						players[p.Seat].ID = p.ID
+						players[p.Seat].Seat = p.Seat
+						players[p.Seat].Chips = p.Chips
+					}
+				}
+			}
+
+		case "hole_dealt":
+			var seat int
+			var cards []string
+			if v, ok := payload["seat"]; ok {
+				json.Unmarshal(v, &seat)
+			}
+			if v, ok := payload["cards"]; ok {
+				json.Unmarshal(v, &cards)
+			}
+			if p := players[seat]; p != nil {
+				p.Hole = cards
+			}
+
+		case "community_dealt":
+			if v, ok := payload["board"]; ok {
+				json.Unmarshal(v, &community)
+			}
+			if v, ok := payload["phase"]; ok {
+				json.Unmarshal(v, &lastPhase)
+			}
+
+		case "player_action":
+			var seat int
+			var action string
+			if v, ok := payload["seat"]; ok {
+				json.Unmarshal(v, &seat)
+			}
+			if v, ok := payload["action"]; ok {
+				json.Unmarshal(v, &action)
+			}
+			if v, ok := payload["chips_left"]; ok {
+				if p := players[seat]; p != nil {
+					json.Unmarshal(v, &p.Chips)
+				}
+			}
+			if p := players[seat]; p != nil {
+				switch action {
+				case "fold":
+					p.Folded = true
+				case "allin":
+					p.AllIn = true
+				}
+			}
+
+		case "showdown":
+			lastPhase = "showdown"
+			if v, ok := payload["board"]; ok {
+				json.Unmarshal(v, &community)
+			}
+			if v, ok := payload["players"]; ok {
+				var sdPlayers []struct {
+					Seat int      `json:"seat"`
+					Hole []string `json:"hole"`
+				}
+				if json.Unmarshal(v, &sdPlayers) == nil {
+					for _, sp := range sdPlayers {
+						if p := players[sp.Seat]; p != nil {
+							p.Hole = sp.Hole
+						}
+					}
+				}
+			}
+
+		case "pot_awarded":
+			if v, ok := payload["winners"]; ok {
+				var winners []struct {
+					Seat   int `json:"seat"`
+					Amount int `json:"amount"`
+				}
+				if json.Unmarshal(v, &winners) == nil {
+					for _, w := range winners {
+						if p := players[w.Seat]; p != nil {
+							p.Chips += w.Amount
+						}
+					}
+				}
+			}
+
+		case "player_eliminated":
+			var seat int
+			if v, ok := payload["seat"]; ok {
+				json.Unmarshal(v, &seat)
+			}
+			if p := players[seat]; p != nil {
+				p.Eliminated = true
+			}
+
+		case "hand_end":
+			if v, ok := payload["players"]; ok {
+				var pList []struct {
+					ID    string `json:"id"`
+					Seat  int    `json:"seat"`
+					Chips int    `json:"chips"`
+				}
+				if json.Unmarshal(v, &pList) == nil {
+					for _, p := range pList {
+						if players[p.Seat] != nil {
+							players[p.Seat].Chips = p.Chips
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Look up agent names
+	for _, p := range players {
+		if p.ID != "" && h.agentRepo != nil {
+			if agent, err := h.agentRepo.GetAgentByID(ctx, p.ID); err == nil {
+				p.Name = agent.Name
+			}
+		}
+	}
+
+	// Build sorted player list
+	playerList := make([]*playerInfo, 0, len(players))
+	for seat := 0; seat < 6; seat++ {
+		if p, ok := players[seat]; ok {
+			playerList = append(playerList, p)
+		}
+	}
+
+	state := map[string]interface{}{
+		"game_id":     gameID,
+		"hand_num":    handNum,
+		"phase":       lastPhase,
+		"finished":    true,
+		"community":   community,
+		"current_bet": 0,
+		"small_blind": smallBlind,
+		"big_blind":   bigBlind,
+		"dealer_seat": dealerSeat,
+		"pots":        []interface{}{},
+		"action_on":   -1,
+		"players":     playerList,
+	}
+
+	return json.Marshal(state)
+}
+
+

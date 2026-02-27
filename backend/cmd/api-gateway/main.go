@@ -76,7 +76,7 @@ func main() {
 	)
 
 	// Build game proxy and subscribe to game-over events
-	gameProxy := api.NewGameProxyHandler(nc, gameRepository, settlement)
+	gameProxy := api.NewGameProxyHandler(nc, gameRepository, agentRepo, settlement)
 	if err := gameProxy.SubscribeGameOver(ctx); err != nil {
 		slog.Error("failed to subscribe game over events", "error", err)
 		os.Exit(1)
@@ -101,14 +101,23 @@ func main() {
 			return err
 		}
 
+		// Look up agent names for display
+		playerNames := make(map[string]string)
+		for _, p := range players {
+			if agent, err := agentRepo.GetAgentByID(ctx, p.AgentID); err == nil {
+				playerNames[p.AgentID] = agent.Name
+			}
+		}
+
 		// Create room via NATS
 		seed := cryptoSeed()
 		var resp natsClient.CreateRoomResponse
 		err = nc.RequestJSON(natsClient.SubjectPokerRoomCreate, natsClient.CreateRoomRequest{
-			GameID:    dbGame.ID,
-			PlayerIDs: playerIDs,
-			Seed:      seed,
-			EntryFee:  matchmaking.DefaultConfigs[models.GameTypePoker].EntryFee,
+			GameID:      dbGame.ID,
+			PlayerIDs:   playerIDs,
+			PlayerNames: playerNames,
+			Seed:        seed,
+			EntryFee:    matchmaking.DefaultConfigs[models.GameTypePoker].EntryFee,
 		}, &resp, 3*time.Second)
 		if err != nil {
 			return err

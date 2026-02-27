@@ -314,13 +314,15 @@ type aiDecision struct {
 	Reason string
 }
 
-const systemPrompt = `You are playing Texas Hold'em poker tournament. Analyze the game state and choose your action.
+const systemPrompt = `You are playing a 6-player Texas Hold'em poker tournament. Analyze the game state and choose your action.
 
 Rules:
 - "action" must be exactly one of the valid action types listed below
-- "amount" is the bet size for "raise" only (between min and max). For other actions set amount to 0
+- "amount" is the bet/raise-to size for "raise" only (between min and max). For other actions set amount to 0
 - "reason" max 10 words
-- Consider pot odds, position, hand strength, and opponent behavior`
+- CRITICAL: If "check" is available, NEVER fold. Checking is FREE and lets you see more cards at zero cost. Folding when you can check is always a mistake.
+- If you have already committed most of your stack as a blind (e.g. 80%+), you should almost always go all-in rather than fold, regardless of hand strength.
+- Consider pot odds, position, hand strength, stack-to-pot ratio, and opponent behavior.`
 
 func callAI(orKey string, a aiAgent, state map[string]interface{}, nameByID map[string]string) aiDecision {
 	userPrompt := formatStatePrompt(a, state, nameByID)
@@ -508,7 +510,51 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 	}
 	sb.WriteString(fmt.Sprintf("Hand #%d, Phase: %s\n", handNum, phase))
 
-	// Hole cards
+	// Determine dealer, SB, BB seats for position labels
+	dealerSeat := -1
+	if ds, ok := state["dealer_seat"].(float64); ok {
+		dealerSeat = int(ds)
+	}
+	// Collect active (non-eliminated) seat indices
+	var activeSeats []int
+	if players, ok := state["players"].([]interface{}); ok {
+		for _, raw := range players {
+			p := raw.(map[string]interface{})
+			eliminated, _ := p["eliminated"].(bool)
+			if !eliminated {
+				seat := 0
+				if s, ok := p["seat"].(float64); ok {
+					seat = int(s)
+				}
+				activeSeats = append(activeSeats, seat)
+			}
+		}
+	}
+	sbSeat, bbSeat := -1, -1
+	if dealerSeat >= 0 && len(activeSeats) >= 2 {
+		// Find dealer index in active seats
+		di := -1
+		for i, s := range activeSeats {
+			if s == dealerSeat {
+				di = i
+				break
+			}
+		}
+		if di >= 0 {
+			if len(activeSeats) == 2 {
+				// Heads-up: dealer is SB
+				sbSeat = activeSeats[di]
+				bbSeat = activeSeats[(di+1)%len(activeSeats)]
+			} else {
+				sbSeat = activeSeats[(di+1)%len(activeSeats)]
+				bbSeat = activeSeats[(di+2)%len(activeSeats)]
+			}
+		}
+	}
+
+	// Hole cards + your position
+	myChips := 0
+	myTotalBet := 0
 	if players, ok := state["players"].([]interface{}); ok {
 		for _, raw := range players {
 			p := raw.(map[string]interface{})
@@ -520,6 +566,18 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 					}
 					sb.WriteString(fmt.Sprintf("Your cards: %s\n", strings.Join(cards, ", ")))
 				}
+				if c, ok := p["chips"].(float64); ok {
+					myChips = int(c)
+				}
+				if tb, ok := p["total_bet"].(float64); ok {
+					myTotalBet = int(tb)
+				}
+				mySeat := 0
+				if s, ok := p["seat"].(float64); ok {
+					mySeat = int(s)
+				}
+				pos := positionLabel(mySeat, dealerSeat, sbSeat, bbSeat)
+				sb.WriteString(fmt.Sprintf("Your position: %s\n", pos))
 				break
 			}
 		}
@@ -535,8 +593,8 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 	}
 
 	// Pot
+	totalPot := 0
 	if pots, ok := state["pots"].([]interface{}); ok {
-		totalPot := 0
 		for _, raw := range pots {
 			pot := raw.(map[string]interface{})
 			if amt, ok := pot["amount"].(float64); ok {
@@ -552,9 +610,18 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 		sb.WriteString(fmt.Sprintf("Blinds: %d/%d\n", int(smallBlind), int(bigBlind)))
 	}
 
-	// Current bet
-	if cb, ok := state["current_bet"].(float64); ok {
-		sb.WriteString(fmt.Sprintf("Current bet: %d\n", int(cb)))
+	// Current bet to match
+	if cb, ok := state["current_bet"].(float64); ok && int(cb) > 0 {
+		sb.WriteString(fmt.Sprintf("Current bet to match: %d\n", int(cb)))
+	}
+
+	// Your investment info
+	if myTotalBet > 0 {
+		sb.WriteString(fmt.Sprintf("You already invested: %d this hand\n", myTotalBet))
+	}
+	if myChips > 0 && totalPot > 0 {
+		spr := float64(myChips) / float64(totalPot)
+		sb.WriteString(fmt.Sprintf("Your stack/pot ratio: %.1f\n", spr))
 	}
 
 	// Players
@@ -574,6 +641,10 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 			bet := 0
 			if b, ok := p["bet"].(float64); ok {
 				bet = int(b)
+			}
+			seat := 0
+			if s, ok := p["seat"].(float64); ok {
+				seat = int(s)
 			}
 			folded, _ := p["folded"].(bool)
 			allIn, _ := p["all_in"].(bool)
@@ -595,7 +666,8 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 				status = " [all-in]"
 			}
 
-			sb.WriteString(fmt.Sprintf("- %s%s: %d chips, bet %d%s\n", name, marker, chips, bet, status))
+			pos := positionLabel(seat, dealerSeat, sbSeat, bbSeat)
+			sb.WriteString(fmt.Sprintf("- %s%s [%s]: %d chips, bet %d%s\n", name, marker, pos, chips, bet, status))
 		}
 	}
 
@@ -609,7 +681,7 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 			case "fold":
 				sb.WriteString("- fold\n")
 			case "check":
-				sb.WriteString("- check\n")
+				sb.WriteString("- check (FREE - costs nothing)\n")
 			case "call":
 				cost := 0
 				if c, ok := act["call_cost"].(float64); ok {
@@ -636,6 +708,20 @@ func formatStatePrompt(a aiAgent, state map[string]interface{}, nameByID map[str
 	}
 
 	return sb.String()
+}
+
+// positionLabel returns the table position label for a seat.
+func positionLabel(seat, dealerSeat, sbSeat, bbSeat int) string {
+	if seat == dealerSeat {
+		return "BTN"
+	}
+	if seat == sbSeat {
+		return "SB"
+	}
+	if seat == bbSeat {
+		return "BB"
+	}
+	return "MP"
 }
 
 // --- Agent Registration via API ---

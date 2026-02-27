@@ -53,7 +53,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	// Handlers
 	agentHandler := NewAgentHandler(deps.AgentRepo, deps.ChakraRepo)
 	ownerHandler := NewOwnerHandler(deps.AgentRepo, deps.ChakraRepo, deps.TwitterClient)
-	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.Settlement)
+	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.AgentRepo, deps.Settlement)
 	matchHandler := NewMatchmakingHandler(deps.MatchSvc, deps.AgentRepo)
 	authHandler := NewAuthHandler(deps.TwitterClient, deps.Sessions)
 

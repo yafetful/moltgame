@@ -123,7 +123,7 @@ func TestPotCalculation(t *testing.T) {
 
 // TestNewGame verifies game creation.
 func TestNewGame(t *testing.T) {
-	g := NewGame("test-1", []string{"agent_a", "agent_b", "agent_c"}, 42)
+	g := NewGame("test-1", []string{"agent_a", "agent_b", "agent_c"}, 42, nil)
 
 	if g.ID != "test-1" {
 		t.Errorf("ID = %q, want %q", g.ID, "test-1")
@@ -146,7 +146,7 @@ func TestNewGame(t *testing.T) {
 
 // TestStartHand verifies hand initialization.
 func TestStartHand(t *testing.T) {
-	g := NewGame("test-2", []string{"a", "b", "c"}, 42)
+	g := NewGame("test-2", []string{"a", "b", "c"}, 42, nil)
 
 	events, err := g.StartHand()
 	if err != nil {
@@ -195,7 +195,7 @@ func TestStartHand(t *testing.T) {
 
 // TestHeadsUpBlinds verifies heads-up blind posting (dealer is SB).
 func TestHeadsUpBlinds(t *testing.T) {
-	g := NewGame("hu-1", []string{"a", "b"}, 42)
+	g := NewGame("hu-1", []string{"a", "b"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
@@ -218,7 +218,7 @@ func TestHeadsUpBlinds(t *testing.T) {
 
 // TestSimpleHandAllFold verifies a hand where everyone folds to the last player.
 func TestSimpleHandAllFold(t *testing.T) {
-	g := NewGame("fold-1", []string{"a", "b", "c"}, 42)
+	g := NewGame("fold-1", []string{"a", "b", "c"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
@@ -251,7 +251,7 @@ func TestSimpleHandAllFold(t *testing.T) {
 
 // TestCheckDownToShowdown verifies a hand that checks all the way to showdown.
 func TestCheckDownToShowdown(t *testing.T) {
-	g := NewGame("check-1", []string{"a", "b"}, 42)
+	g := NewGame("check-1", []string{"a", "b"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
@@ -345,7 +345,7 @@ func TestCheckDownToShowdown(t *testing.T) {
 
 // TestRaiseAndCall verifies raise/call action flow.
 func TestRaiseAndCall(t *testing.T) {
-	g := NewGame("raise-1", []string{"a", "b", "c"}, 42)
+	g := NewGame("raise-1", []string{"a", "b", "c"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
@@ -384,7 +384,7 @@ func TestRaiseAndCall(t *testing.T) {
 
 // TestAllInShowdown verifies all-in leading to showdown.
 func TestAllInShowdown(t *testing.T) {
-	g := NewGame("allin-1", []string{"a", "b"}, 42)
+	g := NewGame("allin-1", []string{"a", "b"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
@@ -431,7 +431,7 @@ func TestAllInShowdown(t *testing.T) {
 // TestFullTournament simulates a full tournament until one player remains.
 // Uses a mixed strategy (occasionally raising) to create larger pots and faster eliminations.
 func TestFullTournament(t *testing.T) {
-	g := NewGame("tourney-1", []string{"a", "b", "c", "d", "e", "f"}, 12345)
+	g := NewGame("tourney-1", []string{"a", "b", "c", "d", "e", "f"}, 12345, nil)
 
 	totalStartChips := StartingChips * 6
 	handCount := 0
@@ -541,7 +541,7 @@ func TestFullTournament(t *testing.T) {
 
 // TestInvalidActions verifies that invalid actions are rejected.
 func TestInvalidActions(t *testing.T) {
-	g := NewGame("invalid-1", []string{"a", "b", "c"}, 42)
+	g := NewGame("invalid-1", []string{"a", "b", "c"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
@@ -569,7 +569,7 @@ func TestInvalidActions(t *testing.T) {
 
 // TestDealerRotation verifies dealer button moves correctly.
 func TestDealerRotation(t *testing.T) {
-	g := NewGame("rotate-1", []string{"a", "b", "c"}, 42)
+	g := NewGame("rotate-1", []string{"a", "b", "c"}, 42, nil)
 
 	// Hand 1: dealer at seat 0
 	g.StartHand()
@@ -599,7 +599,7 @@ func TestDealerRotation(t *testing.T) {
 
 // TestValidActionsOptions verifies valid action generation.
 func TestValidActionsOptions(t *testing.T) {
-	g := NewGame("valid-1", []string{"a", "b", "c"}, 42)
+	g := NewGame("valid-1", []string{"a", "b", "c"}, 42, nil)
 
 	_, err := g.StartHand()
 	if err != nil {
