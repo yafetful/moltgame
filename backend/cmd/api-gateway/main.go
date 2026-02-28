@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/moltgame/backend/internal/aibot"
 	"github.com/moltgame/backend/internal/api"
 	"github.com/moltgame/backend/internal/auth"
 	"github.com/moltgame/backend/internal/chakra"
@@ -139,6 +140,26 @@ func main() {
 	defer regenCancel()
 	go chakra.RunPassiveRegenLoop(regenCtx, chakraRepo, 1*time.Hour)
 
+	// Initialize AI bot runner (optional — only if OPENROUTER_API_KEY is set)
+	var aiRunner *aibot.Runner
+	if cfg.OpenRouterAPIKey != "" {
+		agentNames := []string{"seed-16", "gemini-flash", "gpt-52-chat", "deepseek-v3", "grok-fast", "claude-sonnet"}
+		aiAgents := make([]aibot.AgentConfig, 6)
+		for i, name := range agentNames {
+			model := cfg.AIModels[i]
+			if model == "" {
+				slog.Warn("AI model not configured, AI game trigger disabled", "env", fmt.Sprintf("MODEL_ID_%d", i+1))
+				aiAgents = nil
+				break
+			}
+			aiAgents[i] = aibot.AgentConfig{Name: name, Model: model}
+		}
+		if aiAgents != nil {
+			aiRunner = aibot.NewRunner(nc, agentRepo, gameRepository, settlement, cfg.OpenRouterAPIKey, aiAgents)
+			slog.Info("AI bot runner initialized")
+		}
+	}
+
 	// Build router
 	router := api.NewRouter(api.RouterDeps{
 		AgentRepo:     agentRepo,
@@ -149,6 +170,8 @@ func main() {
 		MatchSvc:      matchSvc,
 		TwitterClient: twitterClient,
 		Sessions:      sessions,
+		AIRunner:      aiRunner,
+		AdminPassword: cfg.AdminPassword,
 	})
 
 	srv := &http.Server{

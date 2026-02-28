@@ -30,6 +30,11 @@ type Config struct {
 
 	// JWT
 	JWTSecret string
+
+	// Admin / AI Bot
+	AdminPassword    string
+	OpenRouterAPIKey string
+	AIModels         [6]string // OpenRouter model IDs for 6 AI agents
 }
 
 func Load() *Config {
@@ -58,6 +63,17 @@ func Load() *Config {
 		TwitterAccessTokenSecret: getEnv("TWITTER_ACCESS_TOKEN_SECRET", ""),
 
 		JWTSecret: getEnv("JWT_SECRET", "moltgame-dev-secret-change-in-prod"),
+
+		AdminPassword:    getEnv("ADMIN_PASSWORD", ""),
+		OpenRouterAPIKey: getEnv("OPENROUTER_API_KEY", ""),
+		AIModels: [6]string{
+			getEnv("MODEL_ID_1", ""),
+			getEnv("MODEL_ID_2", ""),
+			getEnv("MODEL_ID_3", ""),
+			getEnv("MODEL_ID_4", ""),
+			getEnv("MODEL_ID_5", ""),
+			getEnv("MODEL_ID_6", ""),
+		},
 	}
 }
 

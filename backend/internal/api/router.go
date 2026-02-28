@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/moltgame/backend/internal/aibot"
 	"github.com/moltgame/backend/internal/auth"
 	"github.com/moltgame/backend/internal/chakra"
 	gameRepo "github.com/moltgame/backend/internal/game"
@@ -26,6 +27,8 @@ type RouterDeps struct {
 	MatchSvc      *matchmaking.Service
 	TwitterClient *twitter.Client
 	Sessions      *auth.SessionManager
+	AIRunner      *aibot.Runner
+	AdminPassword string
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
@@ -56,6 +59,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.AgentRepo, deps.Settlement)
 	matchHandler := NewMatchmakingHandler(deps.MatchSvc, deps.AgentRepo)
 	authHandler := NewAuthHandler(deps.TwitterClient, deps.Sessions)
+	adminHandler := NewAdminHandler(deps.AIRunner, deps.AdminPassword)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -118,6 +122,10 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 			// Agent claim (requires owner JWT — twitter_id from JWT, not request body)
 			r.With(auth.RequireOwner(deps.Sessions)).Post("/agents/claim", ownerHandler.ClaimAgent)
+
+			// Admin routes (password-protected in handler)
+			r.Post("/admin/start-ai-game", adminHandler.StartAIGame)
+			r.Get("/admin/ai-game-status", adminHandler.GetAIGameStatus)
 		})
 	})
 
