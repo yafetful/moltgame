@@ -26,13 +26,12 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --maxmemory 512mb
+      --maxmemory 256mb
       --maxmemory-policy allkeys-lru
-      --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -61,12 +60,32 @@ services:
       target: api-gateway
     container_name: moltgame-api
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3011:8080"
     environment:
-      DATABASE_URL: postgres://${DB_USER:-moltgame}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-moltgame}?sslmode=disable
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://nats:4222
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-moltgame}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-moltgame}
+      REDIS_ADDR: redis:6379
+      NATS_ADDR: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      MODEL_ID_1: ${MODEL_ID_1}
+      MODEL_ID_2: ${MODEL_ID_2}
+      MODEL_ID_3: ${MODEL_ID_3}
+      MODEL_ID_4: ${MODEL_ID_4}
+      MODEL_ID_5: ${MODEL_ID_5}
+      MODEL_ID_6: ${MODEL_ID_6}
+      TWITTER_CLIENT_ID: ${TWITTER_CLIENT_ID}
+      TWITTER_CLIENT_SECRET: ${TWITTER_CLIENT_SECRET}
+      TWITTER_CALLBACK_URL: ${TWITTER_CALLBACK_URL}
       TWITTER_API_KEY: ${TWITTER_API_KEY}
-      TWITTER_API_SECRET: ${TWITTER_API_SECRET}
+      TWITTER_API_KEY_SECRET: ${TWITTER_API_KEY_SECRET}
+      TWITTER_ACCESS_TOKEN: ${TWITTER_ACCESS_TOKEN}
+      TWITTER_ACCESS_TOKEN_SECRET: ${TWITTER_ACCESS_TOKEN_SECRET}
       PORT: "8080"
     depends_on:
       postgres:
@@ -87,9 +106,16 @@ services:
     container_name: moltgame-poker
     restart: unless-stopped
     environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-moltgame}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-moltgame}
       NATS_ADDR: nats://nats:4222
     depends_on:
       nats:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - internal
@@ -100,9 +126,15 @@ services:
       target: ws-gateway
     container_name: moltgame-ws
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3012:8081"
     environment:
-      DATABASE_URL: postgres://${DB_USER:-moltgame}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-moltgame}?sslmode=disable
-      NATS_URL: nats://nats:4222
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-moltgame}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-moltgame}
+      NATS_ADDR: nats://nats:4222
       PORT: "8081"
     depends_on:
       postgres:
@@ -117,48 +149,20 @@ services:
     build:
       context: ./frontend
       target: runner
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://game.0ai.ai}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://game.0ai.ai}
     container_name: moltgame-frontend
     restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: https://api.moltgame.com
-      NEXT_PUBLIC_WS_URL: wss://ws.moltgame.com
-    networks:
-      - internal
-
-  # --- Reverse Proxy ---
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: moltgame-nginx
-    restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - certbot_data:/etc/letsencrypt:ro
-      - certbot_www:/var/www/certbot:ro
-    depends_on:
-      - api-gateway
-      - ws-gateway
-      - frontend
+      - "127.0.0.1:3010:3000"
     networks:
       - internal
-
-  certbot:
-    image: certbot/certbot
-    container_name: moltgame-certbot
-    volumes:
-      - certbot_data:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
 volumes:
   postgres_data:
   redis_data:
   nats_data:
-  certbot_data:
-  certbot_www:
 
 networks:
   internal:
