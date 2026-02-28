@@ -2,11 +2,16 @@
 
 import { useTranslations } from "next-intl";
 import { useParams } from "next/navigation";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Nav from "@/components/Nav";
-import { fetchLiveGames, fetchRecentGames } from "@/lib/api";
+import {
+  fetchLiveGames,
+  fetchRecentGames,
+  startAiGame,
+  fetchAiGameStatus,
+} from "@/lib/api";
 import type { LiveGame, RecentGame } from "@/lib/types";
 
 const GAME_CONFIG = {
@@ -50,11 +55,21 @@ function phaseLabel(phase: string): string {
 export default function GameLobby() {
   const t = useTranslations("lobby");
   const params = useParams();
+  const router = useRouter();
   const gameSlug = params.game as keyof typeof GAME_CONFIG;
   const [tab, setTab] = useState<Tab>("live");
 
   const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
   const [recentGames, setRecentGames] = useState<RecentGame[]>([]);
+
+  // AI game state
+  const [aiStatus, setAiStatus] = useState<
+    { running: true; game_id: string } | { running: false } | null
+  >(null);
+  const [showModal, setShowModal] = useState(false);
+  const [password, setPassword] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetchLiveGames().then(setLiveGames);
@@ -64,8 +79,38 @@ export default function GameLobby() {
     const interval = setInterval(() => {
       fetchLiveGames().then(setLiveGames);
     }, 10000);
+
+    // Check AI game status (poker only)
+    if (gameSlug === "poker") {
+      fetchAiGameStatus().then(setAiStatus);
+    }
+
     return () => clearInterval(interval);
-  }, []);
+  }, [gameSlug]);
+
+  async function handleStartAiGame() {
+    setSubmitting(true);
+    setSubmitError(null);
+    const res = await startAiGame(password);
+    setSubmitting(false);
+
+    if (res.ok) {
+      setShowModal(false);
+      router.push(`/game/${res.game_id}`);
+      return;
+    }
+
+    if (res.code === "invalid_password") {
+      setSubmitError(t("wrongPassword"));
+    } else if (res.code === "start_failed") {
+      // Game already running — refresh status and show watch option
+      const status = await fetchAiGameStatus();
+      setAiStatus(status);
+      setShowModal(false);
+    } else {
+      setSubmitError(res.error);
+    }
+  }
 
   const config = GAME_CONFIG[gameSlug];
   if (!config) return null;
@@ -107,7 +152,30 @@ export default function GameLobby() {
             </div>
           </div>
 
-          {/* Right: Live / Replay tabs */}
+          {/* Right: AI game button + Live / Replay tabs */}
+          <div className="flex items-center gap-2">
+            {gameSlug === "poker" && aiStatus?.running && (
+              <Link
+                href={`/game/${aiStatus.game_id}`}
+                className="mr-2 flex items-center gap-2 rounded-full bg-[#00d74b] px-4 py-2 text-base font-medium text-white transition-colors hover:bg-[#00c043]"
+              >
+                <span className="inline-block size-2 animate-pulse rounded-full bg-white" />
+                {t("watchGame")}
+              </Link>
+            )}
+            {gameSlug === "poker" && aiStatus && !aiStatus.running && (
+              <button
+                onClick={() => {
+                  setPassword("");
+                  setSubmitError(null);
+                  setShowModal(true);
+                }}
+                className="mr-2 cursor-pointer rounded-full bg-black px-4 py-2 text-base font-medium text-white transition-colors hover:bg-black/80"
+              >
+                {t("startAiGame")}
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setTab("live")}
@@ -220,6 +288,52 @@ export default function GameLobby() {
           )}
         </div>
       </div>
+
+      {/* Password modal */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="w-[360px] rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-4 text-lg font-semibold text-black">
+              {t("startAiGame")}
+            </h2>
+            <input
+              type="password"
+              placeholder={t("enterPassword")}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && password && !submitting) handleStartAiGame();
+              }}
+              className="mb-3 w-full rounded-lg border border-black/20 px-4 py-2 text-base text-black outline-none focus:border-black"
+              autoFocus
+            />
+            {submitError && (
+              <p className="mb-3 text-sm text-red-500">{submitError}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowModal(false)}
+                className="cursor-pointer rounded-full px-4 py-2 text-base font-medium text-black transition-colors hover:bg-black/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStartAiGame}
+                disabled={!password || submitting}
+                className="cursor-pointer rounded-full bg-black px-4 py-2 text-base font-medium text-white transition-colors hover:bg-black/80 disabled:opacity-40"
+              >
+                {submitting ? t("starting") : "Start"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -39,7 +39,13 @@
     "gamesPlayed": "Games Played",
     "back": "Back",
     "live": "Live",
-    "replay": "Replay"
+    "replay": "Replay",
+    "startAiGame": "Start AI Game",
+    "enterPassword": "Enter admin password",
+    "wrongPassword": "Incorrect password",
+    "gameInProgress": "AI game in progress",
+    "watchGame": "Watch Game",
+    "starting": "Starting..."
   },
   "game": {
     "back": "Back",

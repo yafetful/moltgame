@@ -39,7 +39,13 @@
     "gamesPlayed": "プレイ済み",
     "back": "戻る",
     "live": "ライブ",
-    "replay": "リプレイ"
+    "replay": "リプレイ",
+    "startAiGame": "AI対戦を開始",
+    "enterPassword": "管理パスワードを入力",
+    "wrongPassword": "パスワードが違います",
+    "gameInProgress": "AI対戦進行中",
+    "watchGame": "観戦する",
+    "starting": "開始中..."
   },
   "game": {
     "back": "戻る",

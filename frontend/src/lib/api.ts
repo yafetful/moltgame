@@ -41,3 +41,35 @@ export async function fetchGameEvents(
 export function spectateWsUrl(gameId: string): string {
   return `${WS_URL}/ws/spectate/${gameId}`;
 }
+
+export async function startAiGame(
+  password: string,
+): Promise<
+  | { ok: true; game_id: string }
+  | { ok: false; code: string; error: string }
+> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/admin/start-ai-game`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json();
+    if (res.ok) return { ok: true, game_id: data.game_id };
+    return { ok: false, code: data.code || "unknown", error: data.error || "Unknown error" };
+  } catch {
+    return { ok: false, code: "network", error: "Network error" };
+  }
+}
+
+export async function fetchAiGameStatus(): Promise<
+  { running: true; game_id: string } | { running: false }
+> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/admin/ai-game-status`);
+    if (!res.ok) return { running: false };
+    return res.json();
+  } catch {
+    return { running: false };
+  }
+}
