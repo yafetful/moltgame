@@ -2,6 +2,10 @@
 .DS_Store
 Thumbs.db
 
+# Design assets (keep locally, not in git)
+public/
+nanobanana-output/
+
 # MCP config (contains tokens)
 .mcp.json
 
