@@ -173,10 +173,10 @@ func (h *GameProxyHandler) SubmitAction(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Add hint to remind agent to re-run watcher
+	// Add hint to remind agent to continue polling
 	enriched := map[string]interface{}{
 		"success": resp.Success,
-		"hint":    "Action accepted. Now re-run your watcher script to wait for the next event.",
+		"hint":    "Action accepted. Now poll /agent/wait for the next event.",
 	}
 	httputil.JSON(w, http.StatusOK, enriched)
 }
