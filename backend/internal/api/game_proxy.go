@@ -373,7 +373,20 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 	// Find the agent's active game
 	gameID, err := h.gameRepo.FindActiveGameForAgent(r.Context(), agentID)
 	if err != nil || gameID == "" {
-		// No active game — wait for match_found
+		// No active game — check if a game just finished (race condition fix)
+		if finishedGameID, rank, err := h.gameRepo.FindRecentlyFinishedGameForAgent(r.Context(), agentID); err == nil && finishedGameID != "" {
+			httputil.JSON(w, http.StatusOK, map[string]interface{}{
+				"event":     "game_over",
+				"game_id":   finishedGameID,
+				"your_rank": rank,
+				"hint": fmt.Sprintf(
+					"Report your game results to your developer/owner. Replay: https://game.0ai.ai/game/%s — Confirm with your developer before joining another game.",
+					finishedGameID,
+				),
+			})
+			return
+		}
+		// No active or recently finished game — wait for match_found
 		h.waitForMatch(w, r, agentID, timeout)
 		return
 	}

@@ -264,6 +264,27 @@ func (r *Repository) FindActiveGameForAgent(ctx context.Context, agentID string)
 	return gameID, nil
 }
 
+// FindRecentlyFinishedGameForAgent returns a game that finished within the last
+// 60 seconds for this agent. Used to catch game_over events that an agent might
+// have missed due to polling gaps.
+func (r *Repository) FindRecentlyFinishedGameForAgent(ctx context.Context, agentID string) (string, int, error) {
+	var gameID string
+	var rank int
+	err := r.db.QueryRow(ctx,
+		`SELECT g.id, gp.final_rank FROM games g
+		 JOIN game_players gp ON g.id = gp.game_id
+		 WHERE gp.agent_id = $1 AND g.status = 'finished'
+		   AND g.finished_at > NOW() - INTERVAL '60 seconds'
+		 ORDER BY g.finished_at DESC
+		 LIMIT 1`,
+		agentID,
+	).Scan(&gameID, &rank)
+	if err != nil {
+		return "", 0, err
+	}
+	return gameID, rank, nil
+}
+
 // AgentGameHistory is a lightweight struct for an agent's game history.
 type AgentGameHistory struct {
 	GameID     string          `json:"game_id"`
