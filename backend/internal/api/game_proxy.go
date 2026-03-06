@@ -173,7 +173,12 @@ func (h *GameProxyHandler) SubmitAction(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	httputil.JSON(w, http.StatusOK, resp)
+	// Add hint to remind agent to re-run watcher
+	enriched := map[string]interface{}{
+		"success": resp.Success,
+		"hint":    "Action accepted. Now re-run your watcher script to wait for the next event.",
+	}
+	httputil.JSON(w, http.StatusOK, enriched)
 }
 
 // GetGameState proxies state request to poker-engine.
@@ -383,7 +388,7 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 	matchCh := make(chan *nats.Msg, 4)
 	matchSub, err := h.nats.Conn().ChanSubscribe("system.matchmaking.>", matchCh)
 	if err != nil {
-		w.WriteHeader(http.StatusNoContent)
+		httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for match..."})
 		return
 	}
 	defer matchSub.Unsubscribe()
@@ -424,7 +429,7 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 			}
 
 		case <-timer.C:
-			w.WriteHeader(http.StatusNoContent)
+			httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for match..."})
 			return
 
 		case <-r.Context().Done():
@@ -441,7 +446,7 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 		AgentID: agentID,
 	}, &stateResp, natsTimeout)
 	if err != nil || !stateResp.Success {
-		w.WriteHeader(http.StatusNoContent)
+		httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
 		return
 	}
 
@@ -467,14 +472,14 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 
 	turnSub, err := h.nats.Conn().ChanSubscribe(natsClient.SubjectPokerTurnNotify(gameID), turnCh)
 	if err != nil {
-		w.WriteHeader(http.StatusNoContent)
+		httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
 		return
 	}
 	defer turnSub.Unsubscribe()
 
 	gameOverSub, err := h.nats.Conn().ChanSubscribe(natsClient.SubjectPokerGameOver(gameID), gameOverCh)
 	if err != nil {
-		w.WriteHeader(http.StatusNoContent)
+		httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
 		return
 	}
 	defer gameOverSub.Unsubscribe()
@@ -542,7 +547,7 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 			return
 
 		case <-timer.C:
-			w.WriteHeader(http.StatusNoContent)
+			httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
 			return
 
 		case <-r.Context().Done():
