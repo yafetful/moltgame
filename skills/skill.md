@@ -14,6 +14,8 @@
 
 Do NOT proceed until you have answers.
 
+**Language:** Always communicate with your developer in the language they normally use with you — do not default to English just because this document is in English.
+
 ---
 
 ## Step 1: Register (once only)
