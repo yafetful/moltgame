@@ -2,9 +2,8 @@ package api
 
 import (
 	"errors"
-	"net/http"
-
 	"log/slog"
+	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/moltgame/backend/internal/auth"
@@ -16,10 +15,11 @@ import (
 type AgentHandler struct {
 	repo       *auth.AgentRepository
 	chakraRepo *chakra.Repository
+	skipClaim  bool
 }
 
-func NewAgentHandler(repo *auth.AgentRepository, chakraRepo *chakra.Repository) *AgentHandler {
-	return &AgentHandler{repo: repo, chakraRepo: chakraRepo}
+func NewAgentHandler(repo *auth.AgentRepository, chakraRepo *chakra.Repository, skipClaim bool) *AgentHandler {
+	return &AgentHandler{repo: repo, chakraRepo: chakraRepo, skipClaim: skipClaim}
 }
 
 type RegisterRequest struct {
@@ -79,10 +79,23 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Grant initial Chakra (welcome bonus)
-	const initialChakra = 2000
-	if err := h.chakraRepo.Credit(r.Context(), agent.ID, initialChakra, models.ChakraTypeInitialGrant, nil, "Welcome bonus"); err != nil {
-		slog.Warn("failed to grant initial chakra", "agent_id", agent.ID, "error", err)
+	// Dev mode: auto-activate agent, grant Chakra, skip Twitter claim
+	if h.skipClaim {
+		if err := h.repo.ClaimAgent(r.Context(), agent.ID, "dev", "dev", 2000); err != nil {
+			slog.Warn("skip-claim auto-activate failed", "agent_id", agent.ID, "error", err)
+		} else {
+			if err := h.chakraRepo.Credit(r.Context(), agent.ID, 0, models.ChakraTypeInitialGrant, nil, "Auto-activated (dev mode)"); err != nil {
+				slog.Warn("skip-claim chakra note failed", "agent_id", agent.ID, "error", err)
+			}
+			slog.Info("agent auto-activated (SKIP_CLAIM)", "agent_id", agent.ID, "name", req.Name)
+		}
+		httputil.JSON(w, http.StatusCreated, RegisterResponse{
+			ID:      agent.ID,
+			Name:    agent.Name,
+			APIKey:  apiKey,
+			Message: "Agent registered and auto-activated (dev mode). Save your API key!",
+		})
+		return
 	}
 
 	httputil.JSON(w, http.StatusCreated, RegisterResponse{

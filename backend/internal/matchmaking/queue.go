@@ -45,12 +45,19 @@ var DefaultConfigs = map[models.GameType]GameConfig{
 	},
 }
 
+// BotProvider supplies house AI bot agent IDs for backfill.
+type BotProvider interface {
+	// GetBotAgentIDs returns up to n house bot agent IDs (already in DB).
+	GetBotAgentIDs(ctx context.Context, n int) ([]string, error)
+}
+
 // Service manages matchmaking queues.
 type Service struct {
-	mu     sync.Mutex
-	queues map[models.GameType][]*QueueEntry
-	nats   *natsClient.Client
-	onMatch func(ctx context.Context, gameType models.GameType, players []*QueueEntry) error
+	mu          sync.Mutex
+	queues      map[models.GameType][]*QueueEntry
+	nats        *natsClient.Client
+	onMatch     func(ctx context.Context, gameType models.GameType, players []*QueueEntry) error
+	botProvider BotProvider
 }
 
 // NewService creates a new matchmaking service.
@@ -60,6 +67,13 @@ func NewService(nc *natsClient.Client, onMatch func(ctx context.Context, gameTyp
 		nats:    nc,
 		onMatch: onMatch,
 	}
+}
+
+// SetBotProvider sets the provider used for AI bot backfill.
+func (s *Service) SetBotProvider(bp BotProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.botProvider = bp
 }
 
 // Join adds an agent to the matchmaking queue.
@@ -138,6 +152,9 @@ func (s *Service) QueueStatus() map[string]int {
 	return status
 }
 
+// backfillWait is how long a real player must wait before AI bots are added.
+const backfillWait = 30 * time.Second
+
 // RunMatchLoop periodically attempts to form matches.
 func (s *Service) RunMatchLoop(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
@@ -151,6 +168,8 @@ func (s *Service) RunMatchLoop(ctx context.Context, interval time.Duration) {
 			s.mu.Lock()
 			for gameType, cfg := range DefaultConfigs {
 				s.tryMatch(gameType, cfg)
+				// If there are real players waiting 30s+ but not enough, try backfill
+				s.tryBackfill(ctx, gameType, cfg)
 			}
 			s.mu.Unlock()
 		}
@@ -255,6 +274,63 @@ func skillRange(waitTime time.Duration, sigma float64) float64 {
 		return 3 * sigma
 	default:
 		return trueskill.DefaultMu * 10 // effectively unlimited
+	}
+}
+
+// tryBackfill fills the queue with AI bots when real players have waited long enough.
+// Must be called with mu held.
+func (s *Service) tryBackfill(ctx context.Context, gameType models.GameType, cfg GameConfig) {
+	if s.botProvider == nil {
+		return
+	}
+
+	queue := s.queues[gameType]
+	if len(queue) == 0 || len(queue) >= cfg.MinPlayers {
+		return // no real players or already enough
+	}
+
+	// Check if the oldest real player has waited long enough
+	now := time.Now()
+	oldest := queue[0]
+	if now.Sub(oldest.JoinedAt) < backfillWait {
+		return
+	}
+
+	// Need this many bots
+	needed := cfg.MinPlayers - len(queue)
+	existingIDs := make(map[string]bool)
+	for _, e := range queue {
+		existingIDs[e.AgentID] = true
+	}
+
+	botIDs, err := s.botProvider.GetBotAgentIDs(ctx, needed)
+	if err != nil {
+		slog.Error("failed to get bot agent IDs for backfill", "error", err)
+		return
+	}
+
+	// Add bot entries to queue
+	added := 0
+	for _, id := range botIDs {
+		if existingIDs[id] {
+			continue
+		}
+		queue = append(queue, &QueueEntry{
+			AgentID:  id,
+			Mu:       trueskill.DefaultMu,
+			Sigma:    trueskill.DefaultSigma,
+			JoinedAt: now,
+		})
+		added++
+		if added >= needed {
+			break
+		}
+	}
+	s.queues[gameType] = queue
+
+	if added > 0 {
+		slog.Info("backfilled matchmaking with AI bots", "game_type", gameType, "bots_added", added, "queue_size", len(queue))
+		s.tryMatch(gameType, cfg)
 	}
 }
 

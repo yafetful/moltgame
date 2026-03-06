@@ -1,6 +1,7 @@
 package api
 
 import (
+	_ "embed"
 	"log/slog"
 	"net/http"
 	"time"
@@ -29,6 +30,16 @@ type RouterDeps struct {
 	Sessions      *auth.SessionManager
 	AIRunner      *aibot.Runner
 	AdminPassword string
+	SkipClaim     bool // dev mode: auto-activate agents on registration
+}
+
+//go:embed skill.md
+var skillMD []byte
+
+func serveSkillMD(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(skillMD)
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
@@ -53,8 +64,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 		httputil.JSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "api-gateway"})
 	})
 
+	// Serve skill.md for AI agent discovery (embedded at build time)
+	r.Get("/skill.md", serveSkillMD)
+	r.Get("/.well-known/skill.md", serveSkillMD)
+
 	// Handlers
-	agentHandler := NewAgentHandler(deps.AgentRepo, deps.ChakraRepo)
+	agentHandler := NewAgentHandler(deps.AgentRepo, deps.ChakraRepo, deps.SkipClaim)
 	ownerHandler := NewOwnerHandler(deps.AgentRepo, deps.ChakraRepo, deps.TwitterClient)
 	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.AgentRepo, deps.Settlement)
 	matchHandler := NewMatchmakingHandler(deps.MatchSvc, deps.AgentRepo)
@@ -66,6 +81,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		// Agent long-polling — NO standard timeout (uses its own 65s)
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAgent(deps.AgentRepo))
+			r.Use(auth.RequireActiveAgent(deps.AgentRepo))
 			r.Use(middleware.Timeout(65 * time.Second))
 			r.Get("/agent/wait", gameProxy.AgentWait)
 		})
@@ -96,6 +112,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 			r.Group(func(r chi.Router) {
 				r.Use(auth.RequireAgent(deps.AgentRepo))
+				r.Use(auth.RequireActiveAgent(deps.AgentRepo))
 				r.Post("/games", gameProxy.CreateGame)
 				r.Get("/games/{id}/state", gameProxy.GetGameState)
 				r.Post("/games/{id}/action", gameProxy.SubmitAction)
@@ -108,6 +125,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Get("/matchmaking/status", matchHandler.QueueStatus)
 			r.Group(func(r chi.Router) {
 				r.Use(auth.RequireAgent(deps.AgentRepo))
+				r.Use(auth.RequireActiveAgent(deps.AgentRepo))
 				r.Post("/matchmaking/join", matchHandler.JoinQueue)
 				r.Delete("/matchmaking/leave", matchHandler.LeaveQueue)
 			})

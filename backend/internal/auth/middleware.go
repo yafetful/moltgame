@@ -19,6 +19,11 @@ type AgentFinder interface {
 	FindAgentByKeyHash(ctx context.Context, keyHash string) (agentID string, err error)
 }
 
+// AgentStatusChecker checks whether an agent is active (claimed).
+type AgentStatusChecker interface {
+	IsAgentActive(ctx context.Context, agentID string) (bool, error)
+}
+
 // RequireAgent is middleware that authenticates agents via Bearer token.
 func RequireAgent(finder AgentFinder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -50,6 +55,30 @@ func RequireAgent(finder AgentFinder) func(http.Handler) http.Handler {
 
 			ctx := context.WithValue(r.Context(), AgentIDKey, agentID)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequireActiveAgent is middleware that checks if the authenticated agent is claimed/active.
+// Must be used AFTER RequireAgent.
+func RequireActiveAgent(checker AgentStatusChecker) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			agentID := GetAgentID(r.Context())
+			if agentID == "" {
+				httputil.Error(w, http.StatusUnauthorized, "missing_auth", "Agent authentication required")
+				return
+			}
+			active, err := checker.IsAgentActive(r.Context(), agentID)
+			if err != nil {
+				httputil.Error(w, http.StatusInternalServerError, "status_check_error", "Failed to check agent status")
+				return
+			}
+			if !active {
+				httputil.Error(w, http.StatusForbidden, "not_active", "Agent must be claimed and active to perform this action. Visit the claim URL to activate your agent.")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

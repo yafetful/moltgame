@@ -83,8 +83,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize AI bot runner (optional — only if OPENROUTER_API_KEY is set)
+	var aiRunner *aibot.Runner
+	if cfg.OpenRouterAPIKey != "" && cfg.AIModel != "" {
+		agentNames := []string{"molt-ace", "molt-bluff", "molt-chip", "molt-deal", "molt-edge", "molt-fold"}
+		aiAgents := make([]aibot.AgentConfig, 6)
+		for i, name := range agentNames {
+			aiAgents[i] = aibot.AgentConfig{Name: name, Model: cfg.AIModel}
+		}
+		aiRunner = aibot.NewRunner(nc, agentRepo, gameRepository, settlement, cfg.OpenRouterAPIKey, aiAgents)
+		slog.Info("AI bot runner initialized", "model", cfg.AIModel)
+	}
+
 	// Matchmaking callback: when a match is formed, create the game via NATS
-	matchSvc := matchmaking.NewService(nc, func(ctx context.Context, gameType models.GameType, players []*matchmaking.QueueEntry) error {
+	var matchSvc *matchmaking.Service
+	matchSvc = matchmaking.NewService(nc, func(ctx context.Context, gameType models.GameType, players []*matchmaking.QueueEntry) error {
 		if gameType != models.GameTypePoker {
 			slog.Warn("unsupported game type for matchmaking", "type", gameType)
 			return nil
@@ -95,11 +108,29 @@ func main() {
 			playerIDs[i] = p.AgentID
 		}
 
+		entryFee := matchmaking.DefaultConfigs[models.GameTypePoker].EntryFee
+
 		// Create DB record
-		config := []byte(`{}`)
-		dbGame, err := gameRepository.CreateGame(ctx, gameType, playerIDs, config)
+		cfgJSON := []byte(fmt.Sprintf(`{"entry_fee":%d}`, entryFee))
+		dbGame, err := gameRepository.CreateGame(ctx, gameType, playerIDs, cfgJSON)
 		if err != nil {
 			return err
+		}
+
+		// Collect entry fees (skip house bots)
+		if entryFee > 0 {
+			var realPlayerIDs []string
+			for _, id := range playerIDs {
+				if aiRunner != nil && aiRunner.IsBotAgent(ctx, id) {
+					continue
+				}
+				realPlayerIDs = append(realPlayerIDs, id)
+			}
+			if len(realPlayerIDs) > 0 {
+				if err := settlement.CollectEntryFees(ctx, dbGame.ID, realPlayerIDs, entryFee); err != nil {
+					return fmt.Errorf("entry fee: %w", err)
+				}
+			}
 		}
 
 		// Look up agent names for display
@@ -118,7 +149,7 @@ func main() {
 			PlayerIDs:   playerIDs,
 			PlayerNames: playerNames,
 			Seed:        seed,
-			EntryFee:    matchmaking.DefaultConfigs[models.GameTypePoker].EntryFee,
+			EntryFee:    entryFee,
 		}, &resp, 3*time.Second)
 		if err != nil {
 			return err
@@ -127,8 +158,29 @@ func main() {
 			return fmt.Errorf("poker engine: %s", resp.Error)
 		}
 
+		// Publish match_found notification
+		matchSvc.PublishMatchFound(dbGame.ID, gameType, playerIDs)
+
+		// Start AI bot driver for any house bots in this game
+		if aiRunner != nil {
+			var botIDs []string
+			for _, id := range playerIDs {
+				if aiRunner.IsBotAgent(ctx, id) {
+					botIDs = append(botIDs, id)
+				}
+			}
+			if len(botIDs) > 0 {
+				aiRunner.RunBotsForGame(dbGame.ID, botIDs, playerNames)
+			}
+		}
+
 		return nil
 	})
+
+	// Wire up AI bot backfill provider
+	if aiRunner != nil {
+		matchSvc.SetBotProvider(aiRunner)
+	}
 
 	// Start matchmaking loop
 	matchCtx, matchCancel := context.WithCancel(ctx)
@@ -139,26 +191,6 @@ func main() {
 	regenCtx, regenCancel := context.WithCancel(ctx)
 	defer regenCancel()
 	go chakra.RunPassiveRegenLoop(regenCtx, chakraRepo, 1*time.Hour)
-
-	// Initialize AI bot runner (optional — only if OPENROUTER_API_KEY is set)
-	var aiRunner *aibot.Runner
-	if cfg.OpenRouterAPIKey != "" {
-		agentNames := []string{"seed-16", "gemini-flash", "gpt-52-chat", "deepseek-v3", "grok-fast", "claude-sonnet"}
-		aiAgents := make([]aibot.AgentConfig, 6)
-		for i, name := range agentNames {
-			model := cfg.AIModels[i]
-			if model == "" {
-				slog.Warn("AI model not configured, AI game trigger disabled", "env", fmt.Sprintf("MODEL_ID_%d", i+1))
-				aiAgents = nil
-				break
-			}
-			aiAgents[i] = aibot.AgentConfig{Name: name, Model: model}
-		}
-		if aiAgents != nil {
-			aiRunner = aibot.NewRunner(nc, agentRepo, gameRepository, settlement, cfg.OpenRouterAPIKey, aiAgents)
-			slog.Info("AI bot runner initialized")
-		}
-	}
 
 	// Build router
 	router := api.NewRouter(api.RouterDeps{
@@ -172,6 +204,7 @@ func main() {
 		Sessions:      sessions,
 		AIRunner:      aiRunner,
 		AdminPassword: cfg.AdminPassword,
+		SkipClaim:     cfg.SkipClaim,
 	})
 
 	srv := &http.Server{

@@ -331,6 +331,9 @@ func (h *GameProxyHandler) settleGame(evt natsClient.GameOverEvent) {
 }
 
 // AgentWait implements long-polling for agent turn notification.
+// Handles two scenarios:
+// 1. Agent has an active game → wait for turn or game_over
+// 2. Agent has no active game → wait for match_found from matchmaking
 // GET /api/v1/agent/wait?timeout=30
 func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 	agentID := auth.GetAgentID(r.Context())
@@ -349,17 +352,66 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 	// Find the agent's active game
 	gameID, err := h.gameRepo.FindActiveGameForAgent(r.Context(), agentID)
 	if err != nil || gameID == "" {
-		w.WriteHeader(http.StatusNoContent) // no active game
+		// No active game — wait for match_found
+		h.waitForMatch(w, r, agentID, timeout)
 		return
 	}
 
+	// Has active game — wait for turn
+	h.waitForTurn(w, r, agentID, gameID, timeout)
+}
+
+// waitForMatch waits for a matchmaking match_found event for this agent.
+func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, agentID string, timeout time.Duration) {
+	// Subscribe to all matchmaking notifications
+	matchCh := make(chan *nats.Msg, 4)
+	matchSub, err := h.nats.Conn().ChanSubscribe("system.matchmaking.>", matchCh)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	defer matchSub.Unsubscribe()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case msg := <-matchCh:
+			var matchMsg natsClient.MatchFoundMsg
+			if err := json.Unmarshal(msg.Data, &matchMsg); err != nil {
+				continue
+			}
+			// Check if this agent is in the match
+			for _, id := range matchMsg.PlayerIDs {
+				if id == agentID {
+					httputil.JSON(w, http.StatusOK, map[string]interface{}{
+						"event":     "match_found",
+						"game_id":   matchMsg.GameID,
+						"game_type": matchMsg.GameType,
+					})
+					return
+				}
+			}
+
+		case <-timer.C:
+			w.WriteHeader(http.StatusNoContent)
+			return
+
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// waitForTurn waits for the agent's turn or game over in an active game.
+func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, agentID, gameID string, timeout time.Duration) {
 	// Check current state — if it's already our turn, return immediately
 	var stateResp natsClient.StateResponse
-	err = h.nats.RequestJSON(natsClient.SubjectPokerRoomState(gameID), natsClient.StateRequest{
+	err := h.nats.RequestJSON(natsClient.SubjectPokerRoomState(gameID), natsClient.StateRequest{
 		AgentID: agentID,
 	}, &stateResp, natsTimeout)
 	if err != nil || !stateResp.Success {
-		// Game room may not exist yet or already cleaned up
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -370,7 +422,6 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 		if va, ok := state["valid_actions"]; ok {
 			var actions []json.RawMessage
 			if json.Unmarshal(va, &actions) == nil && len(actions) > 0 {
-				// Already our turn — return state immediately
 				httputil.JSON(w, http.StatusOK, map[string]interface{}{
 					"event":   "your_turn",
 					"game_id": gameID,
@@ -410,22 +461,20 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if evt.AgentID != agentID {
-				continue // not our turn
+				continue
 			}
-			// It's our turn — fetch fresh state and verify valid_actions
 			var freshResp natsClient.StateResponse
 			if err := h.nats.RequestJSON(natsClient.SubjectPokerRoomState(gameID), natsClient.StateRequest{
 				AgentID: agentID,
 			}, &freshResp, natsTimeout); err != nil || !freshResp.Success {
-				continue // state fetch failed, keep waiting
+				continue
 			}
-			// Verify the state actually has valid_actions (turn hasn't passed)
 			var freshState map[string]json.RawMessage
 			if err := json.Unmarshal(freshResp.State, &freshState); err != nil {
 				continue
 			}
 			if va, ok := freshState["valid_actions"]; !ok || string(va) == "null" || string(va) == "[]" {
-				continue // turn already passed, keep waiting
+				continue
 			}
 			httputil.JSON(w, http.StatusOK, map[string]interface{}{
 				"event":   "your_turn",
@@ -446,7 +495,7 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 			return
 
 		case <-r.Context().Done():
-			return // client disconnected
+			return
 		}
 	}
 }

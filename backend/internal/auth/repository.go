@@ -36,6 +36,21 @@ func (r *AgentRepository) FindAgentByKeyHash(ctx context.Context, keyHash string
 	return id, nil
 }
 
+// IsAgentActive checks if an agent has been claimed and is active.
+func (r *AgentRepository) IsAgentActive(ctx context.Context, agentID string) (bool, error) {
+	var status string
+	err := r.db.QueryRow(ctx,
+		"SELECT status FROM agents WHERE id = $1", agentID,
+	).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query agent status: %w", err)
+	}
+	return status == "active", nil
+}
+
 func (r *AgentRepository) CreateAgent(ctx context.Context, name, description, avatarURL, keyHash, claimToken, verificationCode string) (*models.Agent, error) {
 	agent := &models.Agent{}
 	err := r.db.QueryRow(ctx,

@@ -14,7 +14,7 @@ import (
 
 const (
 	checkInAmount = 50
-	initialChakra = 1000
+	initialChakra = 2000
 )
 
 type OwnerHandler struct {

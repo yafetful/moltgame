@@ -65,6 +65,32 @@ func NewRunner(
 	}
 }
 
+// GetBotAgentIDs returns up to n house bot agent IDs, ensuring they exist in DB.
+func (r *Runner) GetBotAgentIDs(ctx context.Context, n int) ([]string, error) {
+	ids, _, err := r.ensureAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if n > len(ids) {
+		n = len(ids)
+	}
+	return ids[:n], nil
+}
+
+// IsBotAgent returns true if the given agent ID belongs to a house bot.
+func (r *Runner) IsBotAgent(ctx context.Context, agentID string) bool {
+	ids, _, err := r.ensureAgents(ctx)
+	if err != nil {
+		return false
+	}
+	for _, id := range ids {
+		if id == agentID {
+			return true
+		}
+	}
+	return false
+}
+
 // IsRunning returns whether an AI game is currently in progress.
 func (r *Runner) IsRunning() (bool, string) {
 	r.mu.Lock()
@@ -146,6 +172,21 @@ func (r *Runner) StartGame(ctx context.Context) (string, error) {
 
 	slog.Info("AI game started", "game_id", dbGame.ID, "players", len(agentIDs))
 	return dbGame.ID, nil
+}
+
+// RunBotsForGame starts a background loop to drive house bots in an existing game.
+// botIDs is the subset of agent IDs in this game that are house bots.
+func (r *Runner) RunBotsForGame(gameID string, botIDs []string, nameByID map[string]string) {
+	if len(botIDs) == 0 {
+		return
+	}
+
+	modelByID := make(map[string]string)
+	for _, id := range botIDs {
+		modelByID[id] = r.agents[0].Model // all bots use the same model
+	}
+
+	go r.runGame(context.Background(), gameID, botIDs, nameByID, modelByID)
 }
 
 // ensureAgents creates or looks up the 6 house AI agents.

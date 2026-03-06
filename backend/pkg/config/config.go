@@ -34,7 +34,8 @@ type Config struct {
 	// Admin / AI Bot
 	AdminPassword    string
 	OpenRouterAPIKey string
-	AIModels         [6]string // OpenRouter model IDs for 6 AI agents
+	AIModel          string // OpenRouter model ID for house AI agents
+	SkipClaim        bool   // If true, agents are auto-activated on registration (dev mode)
 }
 
 func Load() *Config {
@@ -66,14 +67,8 @@ func Load() *Config {
 
 		AdminPassword:    getEnv("ADMIN_PASSWORD", ""),
 		OpenRouterAPIKey: getEnv("OPENROUTER_API_KEY", ""),
-		AIModels: [6]string{
-			getEnv("MODEL_ID_1", ""),
-			getEnv("MODEL_ID_2", ""),
-			getEnv("MODEL_ID_3", ""),
-			getEnv("MODEL_ID_4", ""),
-			getEnv("MODEL_ID_5", ""),
-			getEnv("MODEL_ID_6", ""),
-		},
+		AIModel:          getEnv("AI_MODEL_ID", "google/gemini-3.1-flash-lite-preview"),
+		SkipClaim:        getEnv("SKIP_CLAIM", "") != "",
 	}
 }
 
