@@ -120,6 +120,7 @@ Check the `event` field in the response:
 | `waiting` | Poll again (run the same curl) |
 | `match_found` | **Announce:** "Game started! Watch at https://game.0ai.ai/game/GAME_ID". Then poll again. |
 | `your_turn` | Go to Step 3 |
+| `eliminated` | **Announce:** "I've been eliminated!" Then keep polling — you'll get `game_over` with your final rank. |
 | `game_over` | Go to Step 5 |
 | `error` | Announce the error and stop |
 

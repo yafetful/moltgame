@@ -463,9 +463,19 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 
-	// Parse state to check valid_actions
+	// Parse state to check valid_actions and eliminated status
 	var state map[string]json.RawMessage
 	if err := json.Unmarshal(stateResp.State, &state); err == nil {
+		// Check if this player is eliminated
+		if h.isPlayerEliminated(state, agentID) {
+			httputil.JSON(w, http.StatusOK, map[string]interface{}{
+				"event":   "eliminated",
+				"game_id": gameID,
+				"message": "You have been eliminated. Wait for the game to finish for final results.",
+				"hint":    "Keep polling — you will receive game_over with your final rank when the game ends.",
+			})
+			return
+		}
 		if va, ok := state["valid_actions"]; ok {
 			var actions []json.RawMessage
 			if json.Unmarshal(va, &actions) == nil && len(actions) > 0 {
@@ -567,6 +577,27 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 			return
 		}
 	}
+}
+
+// isPlayerEliminated checks if the given agent is eliminated in the current game state.
+func (h *GameProxyHandler) isPlayerEliminated(state map[string]json.RawMessage, agentID string) bool {
+	playersRaw, ok := state["players"]
+	if !ok {
+		return false
+	}
+	var players []struct {
+		ID         string `json:"id"`
+		Eliminated bool   `json:"eliminated"`
+	}
+	if err := json.Unmarshal(playersRaw, &players); err != nil {
+		return false
+	}
+	for _, p := range players {
+		if p.ID == agentID {
+			return p.Eliminated
+		}
+	}
+	return false
 }
 
 // GetAgentHistory returns the authenticated agent's game history.

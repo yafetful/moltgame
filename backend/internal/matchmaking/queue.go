@@ -49,15 +49,23 @@ var DefaultConfigs = map[models.GameType]GameConfig{
 type BotProvider interface {
 	// GetBotAgentIDs returns up to n house bot agent IDs (already in DB).
 	GetBotAgentIDs(ctx context.Context, n int) ([]string, error)
+	// IsBotAgent returns true if the given agent ID is a house bot.
+	IsBotAgent(ctx context.Context, agentID string) bool
+}
+
+// BusyBotChecker checks whether a bot is currently in an active game.
+type BusyBotChecker interface {
+	IsAgentInActiveGame(ctx context.Context, agentID string) bool
 }
 
 // Service manages matchmaking queues.
 type Service struct {
-	mu          sync.Mutex
-	queues      map[models.GameType][]*QueueEntry
-	nats        *natsClient.Client
-	onMatch     func(ctx context.Context, gameType models.GameType, players []*QueueEntry) error
-	botProvider BotProvider
+	mu              sync.Mutex
+	queues          map[models.GameType][]*QueueEntry
+	nats            *natsClient.Client
+	onMatch         func(ctx context.Context, gameType models.GameType, players []*QueueEntry) error
+	botProvider     BotProvider
+	busyBotChecker  BusyBotChecker
 }
 
 // NewService creates a new matchmaking service.
@@ -74,6 +82,13 @@ func (s *Service) SetBotProvider(bp BotProvider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.botProvider = bp
+}
+
+// SetBusyBotChecker sets the checker used to determine if a bot is in an active game.
+func (s *Service) SetBusyBotChecker(c BusyBotChecker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.busyBotChecker = c
 }
 
 // Join adds an agent to the matchmaking queue.
@@ -303,16 +318,20 @@ func (s *Service) tryBackfill(ctx context.Context, gameType models.GameType, cfg
 		existingIDs[e.AgentID] = true
 	}
 
-	botIDs, err := s.botProvider.GetBotAgentIDs(ctx, needed)
+	// Get all bot IDs (request more than needed so we have alternatives if some are busy)
+	botIDs, err := s.botProvider.GetBotAgentIDs(ctx, needed+6)
 	if err != nil {
 		slog.Error("failed to get bot agent IDs for backfill", "error", err)
 		return
 	}
 
-	// Add bot entries to queue
+	// Add bot entries to queue, skipping bots already in queue or in active games
 	added := 0
 	for _, id := range botIDs {
 		if existingIDs[id] {
+			continue
+		}
+		if s.busyBotChecker != nil && s.busyBotChecker.IsAgentInActiveGame(ctx, id) {
 			continue
 		}
 		queue = append(queue, &QueueEntry{

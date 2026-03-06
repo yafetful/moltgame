@@ -177,9 +177,10 @@ func main() {
 		return nil
 	})
 
-	// Wire up AI bot backfill provider
+	// Wire up AI bot backfill provider and busy-bot checker
 	if aiRunner != nil {
 		matchSvc.SetBotProvider(aiRunner)
+		matchSvc.SetBusyBotChecker(gameRepository)
 	}
 
 	// Start matchmaking loop

@@ -285,6 +285,12 @@ func (r *Repository) FindRecentlyFinishedGameForAgent(ctx context.Context, agent
 	return gameID, rank, nil
 }
 
+// IsAgentInActiveGame returns true if the agent is in a currently playing game.
+func (r *Repository) IsAgentInActiveGame(ctx context.Context, agentID string) bool {
+	gameID, err := r.FindActiveGameForAgent(ctx, agentID)
+	return err == nil && gameID != ""
+}
+
 // AgentGameHistory is a lightweight struct for an agent's game history.
 type AgentGameHistory struct {
 	GameID     string          `json:"game_id"`
