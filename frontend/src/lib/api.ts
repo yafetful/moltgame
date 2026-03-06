@@ -62,6 +62,16 @@ export async function startAiGame(
   }
 }
 
+export async function fetchQueueStatus(): Promise<Record<string, number>> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/matchmaking/status`);
+    if (!res.ok) return {};
+    return res.json();
+  } catch {
+    return {};
+  }
+}
+
 export async function fetchAiGameStatus(): Promise<
   { running: true; game_id: string } | { running: false }
 > {

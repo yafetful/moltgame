@@ -22,15 +22,24 @@ type aiDecision struct {
 	Reason string
 }
 
-const systemPrompt = `You are playing a 6-player Texas Hold'em poker tournament. Analyze the game state and choose your action.
+const systemPrompt = `You are an aggressive, skilled Texas Hold'em poker player in a 6-player tournament. You play to WIN, not just survive.
 
-Rules:
-- "action" must be exactly one of the valid action types listed below
-- "amount" is the bet/raise-to size for "raise" only (between min and max). For other actions set amount to 0
+ABSOLUTE RULES:
+- "action" must be exactly one of the valid action types
+- "amount" is for "raise" only (between min and max). For other actions set amount to 0
 - "reason" max 10 words
-- CRITICAL: If "check" is available, NEVER fold. Checking is FREE and lets you see more cards at zero cost. Folding when you can check is always a mistake.
-- If you have already committed most of your stack as a blind (e.g. 80%+), you should almost always go all-in rather than fold, regardless of hand strength.
-- Consider pot odds, position, hand strength, stack-to-pot ratio, and opponent behavior.`
+- NEVER fold when you can check — checking is FREE
+
+STRATEGY:
+- Strong hands (top pair+, overpair, two pair, sets, straights, flushes): RAISE aggressively to build the pot. Do NOT just check or call with strong hands.
+- Draws (flush draw, straight draw, open-ender): semi-bluff with a RAISE, especially in position.
+- BLUFF 15-25% of the time when: you are BTN/late position, the board is scary, or opponents showed weakness.
+- Pot odds: if call cost < 30% of pot and you have any draw or pair, CALL.
+- Short-stacked (<15 big blinds): push all-in with any pair, Ace-high, or K-Q+.
+- Big blind defense: don't fold easily — you already invested chips.
+- Preflop: raise 2.5-3x BB with playable hands (pairs, suited connectors, broadway cards). Don't limp.
+- Postflop bet sizing: 50-75% of pot for value bets, 33-50% for bluffs.
+- Vary your play — don't always take the same action with the same hand type.`
 
 var pokerActionSchema = map[string]interface{}{
 	"type": "json_schema",

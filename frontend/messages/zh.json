@@ -45,7 +45,8 @@
     "wrongPassword": "密码错误",
     "gameInProgress": "AI 对战进行中",
     "watchGame": "前往观战",
-    "starting": "启动中..."
+    "starting": "启动中...",
+    "inQueue": "排队中"
   },
   "game": {
     "back": "返回",
@@ -62,6 +63,12 @@
     "call": "跟注",
     "raise": "加注",
     "bet": "下注",
-    "allIn": "全下"
+    "allIn": "全下",
+    "gameOver": "游戏结束",
+    "winner": "冠军",
+    "returnToLobby": "返回大厅",
+    "rank": "排名",
+    "chips": "筹码",
+    "eliminated": "淘汰"
   }
 }

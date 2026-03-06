@@ -51,16 +51,16 @@ func (r *AgentRepository) IsAgentActive(ctx context.Context, agentID string) (bo
 	return status == "active", nil
 }
 
-func (r *AgentRepository) CreateAgent(ctx context.Context, name, description, avatarURL, keyHash, claimToken, verificationCode string) (*models.Agent, error) {
+func (r *AgentRepository) CreateAgent(ctx context.Context, name, model, description, avatarURL, keyHash, claimToken, verificationCode string) (*models.Agent, error) {
 	agent := &models.Agent{}
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO agents (name, description, avatar_url, api_key_hash, claim_token, verification_code)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, name, description, avatar_url, status, is_claimed, chakra_balance,
+		`INSERT INTO agents (name, model, description, avatar_url, api_key_hash, claim_token, verification_code)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, name, COALESCE(model,''), description, avatar_url, status, is_claimed, chakra_balance,
 		           trueskill_mu, trueskill_sigma, claim_token, verification_code, created_at`,
-		name, description, avatarURL, keyHash, claimToken, verificationCode,
+		name, model, description, avatarURL, keyHash, claimToken, verificationCode,
 	).Scan(
-		&agent.ID, &agent.Name, &agent.Description, &agent.AvatarURL,
+		&agent.ID, &agent.Name, &agent.Model, &agent.Description, &agent.AvatarURL,
 		&agent.Status, &agent.IsClaimed, &agent.ChakraBalance,
 		&agent.TrueSkillMu, &agent.TrueSkillSigma,
 		&agent.ClaimToken, &agent.VerificationCode, &agent.CreatedAt,
@@ -77,12 +77,12 @@ func (r *AgentRepository) CreateAgent(ctx context.Context, name, description, av
 func (r *AgentRepository) GetAgentByID(ctx context.Context, id string) (*models.Agent, error) {
 	agent := &models.Agent{}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, name, COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
+		`SELECT id, name, COALESCE(model,''), COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
 		        COALESCE(owner_twitter_id,''), COALESCE(owner_twitter_handle,''), chakra_balance,
 		        trueskill_mu, trueskill_sigma, created_at, claimed_at
 		 FROM agents WHERE id = $1`, id,
 	).Scan(
-		&agent.ID, &agent.Name, &agent.Description, &agent.AvatarURL,
+		&agent.ID, &agent.Name, &agent.Model, &agent.Description, &agent.AvatarURL,
 		&agent.Status, &agent.IsClaimed,
 		&agent.OwnerTwitterID, &agent.OwnerTwitterHandle, &agent.ChakraBalance,
 		&agent.TrueSkillMu, &agent.TrueSkillSigma, &agent.CreatedAt, &agent.ClaimedAt,
@@ -99,12 +99,12 @@ func (r *AgentRepository) GetAgentByID(ctx context.Context, id string) (*models.
 func (r *AgentRepository) GetAgentByName(ctx context.Context, name string) (*models.Agent, error) {
 	agent := &models.Agent{}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, name, COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
+		`SELECT id, name, COALESCE(model,''), COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
 		        COALESCE(owner_twitter_handle,''), chakra_balance,
 		        trueskill_mu, trueskill_sigma, created_at
 		 FROM agents WHERE name = $1`, name,
 	).Scan(
-		&agent.ID, &agent.Name, &agent.Description, &agent.AvatarURL,
+		&agent.ID, &agent.Name, &agent.Model, &agent.Description, &agent.AvatarURL,
 		&agent.Status, &agent.IsClaimed,
 		&agent.OwnerTwitterHandle, &agent.ChakraBalance,
 		&agent.TrueSkillMu, &agent.TrueSkillSigma, &agent.CreatedAt,
@@ -182,7 +182,7 @@ func (r *AgentRepository) RotateAPIKey(ctx context.Context, agentID, newKeyHash 
 
 func (r *AgentRepository) GetAgentsByOwner(ctx context.Context, twitterID string) ([]*models.Agent, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, name, COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
+		`SELECT id, name, COALESCE(model,''), COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
 		        chakra_balance, trueskill_mu, trueskill_sigma, created_at, claimed_at
 		 FROM agents WHERE owner_twitter_id = $1 ORDER BY created_at DESC`, twitterID,
 	)
@@ -195,7 +195,7 @@ func (r *AgentRepository) GetAgentsByOwner(ctx context.Context, twitterID string
 	for rows.Next() {
 		a := &models.Agent{}
 		if err := rows.Scan(
-			&a.ID, &a.Name, &a.Description, &a.AvatarURL,
+			&a.ID, &a.Name, &a.Model, &a.Description, &a.AvatarURL,
 			&a.Status, &a.IsClaimed,
 			&a.ChakraBalance, &a.TrueSkillMu, &a.TrueSkillSigma,
 			&a.CreatedAt, &a.ClaimedAt,

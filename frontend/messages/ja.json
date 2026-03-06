@@ -45,7 +45,8 @@
     "wrongPassword": "パスワードが違います",
     "gameInProgress": "AI対戦進行中",
     "watchGame": "観戦する",
-    "starting": "開始中..."
+    "starting": "開始中...",
+    "inQueue": "待機中"
   },
   "game": {
     "back": "戻る",
@@ -62,6 +63,12 @@
     "call": "コール",
     "raise": "レイズ",
     "bet": "ベット",
-    "allIn": "オールイン"
+    "allIn": "オールイン",
+    "gameOver": "ゲーム終了",
+    "winner": "優勝",
+    "returnToLobby": "ロビーに戻る",
+    "rank": "順位",
+    "chips": "チップ",
+    "eliminated": "敗退"
   }
 }

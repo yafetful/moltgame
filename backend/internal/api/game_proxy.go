@@ -153,7 +153,23 @@ func (h *GameProxyHandler) SubmitAction(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !resp.Success {
-		httputil.Error(w, http.StatusBadRequest, "action_error", resp.Error)
+		// Fetch current valid actions to help the agent recover
+		errResp := map[string]interface{}{
+			"error": resp.Error,
+			"code":  "invalid_action",
+		}
+		var stateResp natsClient.StateResponse
+		if err := h.nats.RequestJSON(natsClient.SubjectPokerRoomState(gameID), natsClient.StateRequest{
+			AgentID: agentID,
+		}, &stateResp, natsTimeout); err == nil && stateResp.Success {
+			var state map[string]json.RawMessage
+			if json.Unmarshal(stateResp.State, &state) == nil {
+				if va, ok := state["valid_actions"]; ok {
+					errResp["valid_actions"] = json.RawMessage(va)
+				}
+			}
+		}
+		httputil.JSON(w, http.StatusBadRequest, errResp)
 		return
 	}
 
@@ -385,11 +401,23 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 			// Check if this agent is in the match
 			for _, id := range matchMsg.PlayerIDs {
 				if id == agentID {
-					httputil.JSON(w, http.StatusOK, map[string]interface{}{
-						"event":     "match_found",
-						"game_id":   matchMsg.GameID,
-						"game_type": matchMsg.GameType,
-					})
+					resp := map[string]interface{}{
+						"event":         "match_found",
+						"game_id":       matchMsg.GameID,
+						"game_type":     matchMsg.GameType,
+						"players_count": len(matchMsg.PlayerIDs),
+					}
+					// Look up player names
+					var playerNames []string
+					for _, pid := range matchMsg.PlayerIDs {
+						if agent, err := h.agentRepo.GetAgentByID(r.Context(), pid); err == nil {
+							playerNames = append(playerNames, agent.Name)
+						}
+					}
+					if len(playerNames) > 0 {
+						resp["players"] = playerNames
+					}
+					httputil.JSON(w, http.StatusOK, resp)
 					return
 				}
 			}
@@ -483,11 +511,29 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 			})
 			return
 
-		case <-gameOverCh:
-			httputil.JSON(w, http.StatusOK, map[string]interface{}{
+		case msg := <-gameOverCh:
+			resp := map[string]interface{}{
 				"event":   "game_over",
 				"game_id": gameID,
-			})
+			}
+			// Enrich with ranking info from the NATS event
+			var evt natsClient.GameOverEvent
+			if err := json.Unmarshal(msg.Data, &evt); err == nil {
+				var rankings []struct {
+					Rank     int    `json:"rank"`
+					PlayerID string `json:"player_id"`
+				}
+				if json.Unmarshal(evt.Rankings, &rankings) == nil {
+					resp["players_count"] = len(rankings)
+					for _, r := range rankings {
+						if r.PlayerID == agentID {
+							resp["your_rank"] = r.Rank
+							break
+						}
+					}
+				}
+			}
+			httputil.JSON(w, http.StatusOK, resp)
 			return
 
 		case <-timer.C:
@@ -498,6 +544,22 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 			return
 		}
 	}
+}
+
+// GetAgentHistory returns the authenticated agent's game history.
+// GET /api/v1/agents/me/history
+func (h *GameProxyHandler) GetAgentHistory(w http.ResponseWriter, r *http.Request) {
+	agentID := auth.GetAgentID(r.Context())
+
+	history, err := h.gameRepo.GetAgentHistory(r.Context(), agentID, 50)
+	if err != nil {
+		httputil.Error(w, http.StatusInternalServerError, "query_failed", "Failed to fetch history")
+		return
+	}
+	if history == nil {
+		history = []gameRepo.AgentGameHistory{}
+	}
+	httputil.JSON(w, http.StatusOK, history)
 }
 
 // rebuildFinishedGameState reconstructs the final game state from DB events.

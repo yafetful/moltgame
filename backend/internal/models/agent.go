@@ -13,6 +13,7 @@ const (
 type Agent struct {
 	ID                 string      `json:"id" db:"id"`
 	Name               string      `json:"name" db:"name"`
+	Model              string      `json:"model,omitempty" db:"model"`
 	Description        string      `json:"description,omitempty" db:"description"`
 	AvatarURL          string      `json:"avatar_url,omitempty" db:"avatar_url"`
 	APIKeyHash         string      `json:"-" db:"api_key_hash"`

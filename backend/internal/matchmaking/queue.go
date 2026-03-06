@@ -35,7 +35,7 @@ var DefaultConfigs = map[models.GameType]GameConfig{
 		GameType:   models.GameTypePoker,
 		MinPlayers: 6,
 		MaxPlayers: 6,
-		EntryFee:   20,
+		EntryFee:   100,
 	},
 	models.GameTypeWerewolf: {
 		GameType:   models.GameTypeWerewolf,

@@ -9,6 +9,7 @@ import Nav from "@/components/Nav";
 import {
   fetchLiveGames,
   fetchRecentGames,
+  fetchQueueStatus,
   startAiGame,
   fetchAiGameStatus,
 } from "@/lib/api";
@@ -62,6 +63,9 @@ export default function GameLobby() {
   const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
   const [recentGames, setRecentGames] = useState<RecentGame[]>([]);
 
+  // Queue status
+  const [queueCount, setQueueCount] = useState(0);
+
   // AI game state
   const [aiStatus, setAiStatus] = useState<
     { running: true; game_id: string } | { running: false } | null
@@ -74,10 +78,12 @@ export default function GameLobby() {
   useEffect(() => {
     fetchLiveGames().then(setLiveGames);
     fetchRecentGames().then(setRecentGames);
+    fetchQueueStatus().then((s) => setQueueCount(s[gameSlug] || 0));
 
-    // Poll live games every 10s
+    // Poll live games and queue status every 10s
     const interval = setInterval(() => {
       fetchLiveGames().then(setLiveGames);
+      fetchQueueStatus().then((s) => setQueueCount(s[gameSlug] || 0));
     }, 10000);
 
     // Check AI game status (poker only)
@@ -152,8 +158,14 @@ export default function GameLobby() {
             </div>
           </div>
 
-          {/* Right: AI game button + Live / Replay tabs */}
+          {/* Right: queue status + AI game button + Live / Replay tabs */}
           <div className="flex items-center gap-2">
+            {queueCount > 0 && (
+              <span className="mr-2 flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800">
+                <span className="inline-block size-2 animate-pulse rounded-full bg-amber-500" />
+                {queueCount} {t("inQueue")}
+              </span>
+            )}
             {gameSlug === "poker" && aiStatus?.running && (
               <Link
                 href={`/game/${aiStatus.game_id}`}

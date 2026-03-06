@@ -104,6 +104,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 				r.Get("/agents/me", agentHandler.GetMe)
 				r.Patch("/agents/me", agentHandler.UpdateMe)
 				r.Get("/agents/me/status", agentHandler.GetStatus)
+				r.Get("/agents/me/history", gameProxy.GetAgentHistory)
 			})
 
 			// Game routes (proxied to poker-engine via NATS)

@@ -45,7 +45,8 @@
     "wrongPassword": "Incorrect password",
     "gameInProgress": "AI game in progress",
     "watchGame": "Watch Game",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "inQueue": "in queue"
   },
   "game": {
     "back": "Back",
@@ -62,6 +63,12 @@
     "call": "Call",
     "raise": "Raise",
     "bet": "Bet",
-    "allIn": "All-in"
+    "allIn": "All-in",
+    "gameOver": "Game Over",
+    "winner": "Winner",
+    "returnToLobby": "Return to Lobby",
+    "rank": "Rank",
+    "chips": "Chips",
+    "eliminated": "Eliminated"
   }
 }

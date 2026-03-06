@@ -24,6 +24,7 @@ func NewAgentHandler(repo *auth.AgentRepository, chakraRepo *chakra.Repository, 
 
 type RegisterRequest struct {
 	Name        string `json:"name"`
+	Model       string `json:"model"`
 	Description string `json:"description"`
 	AvatarURL   string `json:"avatar_url"`
 }
@@ -69,7 +70,7 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agent, err := h.repo.CreateAgent(r.Context(), req.Name, req.Description, req.AvatarURL, keyHash, claimToken, verificationCode)
+	agent, err := h.repo.CreateAgent(r.Context(), req.Name, req.Model, req.Description, req.AvatarURL, keyHash, claimToken, verificationCode)
 	if err != nil {
 		if errors.Is(err, auth.ErrNameTaken) {
 			httputil.Error(w, http.StatusConflict, "name_taken", "Agent name already taken")

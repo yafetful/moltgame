@@ -264,6 +264,45 @@ func (r *Repository) FindActiveGameForAgent(ctx context.Context, agentID string)
 	return gameID, nil
 }
 
+// AgentGameHistory is a lightweight struct for an agent's game history.
+type AgentGameHistory struct {
+	GameID     string          `json:"game_id"`
+	GameType   models.GameType `json:"game_type"`
+	FinalRank  *int            `json:"final_rank,omitempty"`
+	ChakraWon  int             `json:"chakra_won"`
+	ChakraLost int             `json:"chakra_lost"`
+	Players    int             `json:"players"`
+	FinishedAt *time.Time      `json:"finished_at,omitempty"`
+}
+
+// GetAgentHistory returns an agent's recent game history.
+func (r *Repository) GetAgentHistory(ctx context.Context, agentID string, limit int) ([]AgentGameHistory, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT g.id, g.type, g.player_count, gp.final_rank, gp.chakra_won, gp.chakra_lost, g.finished_at
+		 FROM game_players gp
+		 JOIN games g ON g.id = gp.game_id
+		 WHERE gp.agent_id = $1 AND g.status = 'finished'
+		 ORDER BY g.finished_at DESC NULLS LAST
+		 LIMIT $2`,
+		agentID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []AgentGameHistory
+	for rows.Next() {
+		var h AgentGameHistory
+		if err := rows.Scan(&h.GameID, &h.GameType, &h.Players,
+			&h.FinalRank, &h.ChakraWon, &h.ChakraLost, &h.FinishedAt); err != nil {
+			return nil, err
+		}
+		history = append(history, h)
+	}
+	return history, rows.Err()
+}
+
 // UpdateAgentRating updates an agent's TrueSkill rating.
 func (r *Repository) UpdateAgentRating(ctx context.Context, agentID string, mu, sigma float64) error {
 	_, err := r.db.Exec(ctx,

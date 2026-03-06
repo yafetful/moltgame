@@ -202,7 +202,7 @@ func (r *Runner) ensureAgents(ctx context.Context) ([]string, map[string]string,
 			}
 			// Create new agent
 			keyHash := hashString(fmt.Sprintf("aibot-%s-%d", ac.Name, time.Now().UnixNano()))
-			agent, err = r.agentRepo.CreateAgent(ctx, ac.Name,
+			agent, err = r.agentRepo.CreateAgent(ctx, ac.Name, ac.Model,
 				fmt.Sprintf("AI agent powered by %s", ac.Model),
 				"", keyHash, "", "")
 			if err != nil {

@@ -688,6 +688,63 @@ export default function GamePage() {
           </div>
         )}
 
+        {/* Game Over overlay (live mode only — when game finishes) */}
+        {!isReplay && currentState?.finished && display && (
+          <div className="mx-auto mt-4 max-w-[720px] rounded-2xl border-2 border-black/10 bg-white/90 p-6 shadow-lg backdrop-blur">
+            <h2 className="mb-4 text-center text-2xl font-bold text-black">
+              {t("gameOver")}
+            </h2>
+            <div className="space-y-2">
+              {[...currentState.players]
+                .sort((a, b) => {
+                  // Winner (most chips, not eliminated) first
+                  if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
+                  return b.chips - a.chips;
+                })
+                .map((p, idx) => (
+                  <div
+                    key={p.id}
+                    className={`flex items-center justify-between rounded-xl px-4 py-2 ${
+                      idx === 0 && !p.eliminated
+                        ? "bg-amber-100 font-semibold"
+                        : "bg-black/5"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 text-center text-sm font-bold text-black/60">
+                        #{idx + 1}
+                      </span>
+                      <img
+                        src={SEAT_AVATARS[p.seat % SEAT_AVATARS.length]}
+                        alt=""
+                        className="size-8 rounded-full"
+                      />
+                      <span className="text-sm font-medium text-black">
+                        {p.name || `Player ${p.seat + 1}`}
+                      </span>
+                      {idx === 0 && !p.eliminated && (
+                        <span className="rounded-full bg-amber-400 px-2 py-0.5 text-xs font-bold text-white">
+                          {t("winner")}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium text-black/60">
+                      {p.eliminated ? t("eliminated") : `${p.chips.toLocaleString()} ${t("chips")}`}
+                    </span>
+                  </div>
+                ))}
+            </div>
+            <div className="mt-4 flex justify-center">
+              <Link
+                href="/lobby/poker"
+                className="rounded-full bg-black px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-black/80"
+              >
+                {t("returnToLobby")}
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Replay controls */}
         {isReplay && frames.length > 0 && (
           <ReplayControls
