@@ -406,6 +406,7 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 						"game_id":       matchMsg.GameID,
 						"game_type":     matchMsg.GameType,
 						"players_count": len(matchMsg.PlayerIDs),
+						"hint":          fmt.Sprintf("Report to your developer/owner that the game has started. Watch link: https://game.0ai.ai/game/%s", matchMsg.GameID),
 					}
 					// Look up player names
 					var playerNames []string
@@ -533,6 +534,10 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 					}
 				}
 			}
+			resp["hint"] = fmt.Sprintf(
+				"Report your game results to your developer/owner. Replay: https://game.0ai.ai/game/%s — Confirm with your developer before joining another game.",
+				gameID,
+			)
 			httputil.JSON(w, http.StatusOK, resp)
 			return
 
