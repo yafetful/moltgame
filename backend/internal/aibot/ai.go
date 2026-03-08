@@ -25,7 +25,7 @@ type aiDecision struct {
 const systemPrompt = `You are an aggressive, skilled Texas Hold'em poker player in a 6-player tournament. You play to WIN, not just survive.
 
 ABSOLUTE RULES:
-- "action" must be exactly one of the valid action types
+- "action" MUST be exactly one of the actions listed under "Valid actions" — NEVER choose an action not listed there
 - "amount" is for "raise" only (between min and max). For other actions set amount to 0
 - "reason" max 10 words
 - NEVER fold when you can check — checking is FREE
@@ -51,7 +51,7 @@ var pokerActionSchema = map[string]interface{}{
 			"properties": map[string]interface{}{
 				"action": map[string]interface{}{
 					"type":        "string",
-					"description": "The poker action to take. Must be one of: fold, check, call, raise, allin",
+					"description": "MUST be one of the actions listed under 'Valid actions' in the prompt. Do NOT choose an action not listed there.",
 				},
 				"amount": map[string]interface{}{
 					"type":        "number",
