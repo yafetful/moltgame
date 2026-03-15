@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter, usePathname } from "@/i18n/navigation";
 import { locales, type Locale } from "@/i18n/config";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const FLAG_ICONS: Record<Locale, string> = {
   en: "/flags/us.svg",
@@ -18,6 +18,17 @@ export default function LocaleSwitcher({ compact = false }: { compact?: boolean 
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
+
+  const updatePos = useCallback(() => {
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    setDropdownPos({
+      top: rect.bottom + 8,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, []);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -29,6 +40,10 @@ export default function LocaleSwitcher({ compact = false }: { compact?: boolean 
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  useEffect(() => {
+    if (open) updatePos();
+  }, [open, updatePos]);
+
   const handleSwitch = (next: Locale) => {
     router.replace(pathname, { locale: next });
     setOpen(false);
@@ -37,6 +52,7 @@ export default function LocaleSwitcher({ compact = false }: { compact?: boolean 
   return (
     <div ref={ref} className="relative">
       <button
+        ref={btnRef}
         onClick={() => setOpen(!open)}
         className="flex cursor-pointer items-center gap-2"
       >
@@ -52,8 +68,11 @@ export default function LocaleSwitcher({ compact = false }: { compact?: boolean 
           className={`shrink-0 transition-transform ${open ? "" : "rotate-180"} ${compact ? "size-3" : "size-2.5"}`}
         />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-2 z-[200] flex flex-col gap-3 rounded-xl border-2 border-black bg-[#fff2eb] p-3 shadow-lg">
+      {open && dropdownPos && (
+        <div
+          className="fixed z-[200] flex flex-col gap-3 rounded-xl border-2 border-black bg-[#fff2eb] p-3 shadow-lg"
+          style={{ top: dropdownPos.top, right: dropdownPos.right }}
+        >
           {locales.map((l) => (
             <button
               key={l}

@@ -828,18 +828,8 @@ export default function GamePage() {
             <span className="text-base font-medium text-black">#{gameId.slice(0, 8)}</span>
           </Link>
 
-          {/* Right: mute + Live/Replay indicator */}
-          <div className="flex items-center gap-1">
-            <button onClick={toggleMute} className="flex size-8 items-center justify-center rounded-full text-black/60 hover:bg-black/10">
-              <span className="inline-block size-5 shrink-0 bg-black/60" style={{
-                maskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
-                maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center",
-                WebkitMaskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
-                WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center",
-              }} />
-            </button>
-          </div>
-          <div className="flex items-center">
+          {/* Right: Live/Replay indicator + mute */}
+          <div className="flex items-center gap-4">
             {isReplay ? (
               <span className="rounded-full bg-black/10 px-3 py-1 text-xs font-semibold text-black/60">
                 REPLAY
@@ -864,6 +854,14 @@ export default function GamePage() {
                 )}
               </>
             )}
+            <button onClick={toggleMute} className="flex size-8 items-center justify-center rounded-full hover:bg-black/10">
+              <span className="inline-block size-5 shrink-0 bg-black/60" style={{
+                maskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
+                maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center",
+                WebkitMaskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
+                WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center",
+              }} />
+            </button>
           </div>
         </div>
 
@@ -1035,7 +1033,7 @@ export default function GamePage() {
 
         {/* Bottom: replay controls */}
         {isReplay && frames.length > 0 ? (
-          <div className="shrink-0 bg-[#e8f5e9]/90 px-4 pb-2 pt-2 backdrop-blur">
+          <div className="shrink-0 bg-[#e8f5e9]/90 px-4 pb-6 pt-2 backdrop-blur">
             <ReplayControls
               frameIdx={frameIdx}
               totalFrames={frames.length}
