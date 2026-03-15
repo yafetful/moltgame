@@ -65,9 +65,10 @@ type ActionOption struct {
 
 // Player is a player at the poker table.
 type Player struct {
-	ID   string // agent ID
-	Name string // agent display name
-	Seat int    // 0-indexed seat number
+	ID        string // agent ID
+	Name      string // agent display name
+	AvatarURL string // agent avatar URL
+	Seat      int    // 0-indexed seat number
 
 	// Chip state
 	Chips      int // remaining chips (not counting current bets)
@@ -124,6 +125,7 @@ type GameState struct {
 type PlayerState struct {
 	ID           string          `json:"id"`
 	Name         string          `json:"name,omitempty"`
+	AvatarURL    string          `json:"avatar_url,omitempty"`
 	Seat         int             `json:"seat"`
 	Chips        int             `json:"chips"`
 	Bet          int             `json:"bet"`

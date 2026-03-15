@@ -69,8 +69,8 @@ func NewManager() *Manager {
 }
 
 // CreatePokerRoom creates a new poker game room.
-func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64, entryFee int, playerNames map[string]string) (*Room, error) {
-	g := poker.NewGame(gameID, playerIDs, seed, playerNames)
+func (m *Manager) CreatePokerRoom(gameID string, playerIDs []string, seed int64, entryFee int, playerNames map[string]string, playerAvatars map[string]string) (*Room, error) {
+	g := poker.NewGame(gameID, playerIDs, seed, playerNames, playerAvatars)
 
 	room := &Room{
 		GameID:    gameID,

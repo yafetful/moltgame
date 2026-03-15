@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -132,14 +133,15 @@ func (c *Client) ExchangeCode(code, codeVerifier string) (*TokenResponse, error)
 }
 
 type TwitterUser struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Username string `json:"username"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Username        string `json:"username"`
+	ProfileImageURL string `json:"profile_image_url,omitempty"`
 }
 
 // GetMe fetches the authenticated user's profile using an OAuth 2.0 user token.
 func (c *Client) GetMe(accessToken string) (*TwitterUser, error) {
-	req, err := http.NewRequest("GET", "https://api.x.com/2/users/me", nil)
+	req, err := http.NewRequest("GET", "https://api.x.com/2/users/me?user.fields=profile_image_url", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +165,74 @@ func (c *Client) GetMe(accessToken string) (*TwitterUser, error) {
 		return nil, fmt.Errorf("parse user response: %w", err)
 	}
 	return &result.Data, nil
+}
+
+// PostTweet posts a tweet on behalf of the authenticated user.
+// Returns the new tweet's ID on success.
+func (c *Client) PostTweet(accessToken, text string) (tweetID string, err error) {
+	body, _ := json.Marshal(map[string]string{"text": text})
+	req, err := http.NewRequest("POST", "https://api.x.com/2/tweets", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("post tweet request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("post tweet failed (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse tweet response: %w", err)
+	}
+	return result.Data.ID, nil
+}
+
+// RefreshToken exchanges a refresh_token for new tokens.
+// Note: Twitter refresh tokens are one-time-use — always save the new tokens.
+func (c *Client) RefreshToken(refreshToken string) (*TokenResponse, error) {
+	data := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {c.clientID},
+	}
+	req, err := http.NewRequest("POST", "https://api.x.com/2/oauth2/token", strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if c.clientSecret != "" {
+		req.SetBasicAuth(c.clientID, c.clientSecret)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("refresh token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("refresh token failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var tok TokenResponse
+	if err := json.Unmarshal(body, &tok); err != nil {
+		return nil, fmt.Errorf("parse refresh token response: %w", err)
+	}
+	return &tok, nil
 }
 
 // ==================== Tweet Verification (App-Only Bearer Token) ====================

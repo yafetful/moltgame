@@ -50,7 +50,7 @@ const SEAT_CHIPS = [
   "/poker/chips/chip-seat5.svg", // seat 5 — purple
 ];
 
-// Avatar assignments per seat
+// Fallback avatar assignments per seat (used when avatar_url is not set)
 const SEAT_AVATARS = [
   "/avatars/01-fox.png",
   "/avatars/02-koala.png",
@@ -194,7 +194,7 @@ function apiStateToProps(state: ApiGameState) {
       return {
         name: p.name || `Player ${p.seat + 1}`,
         model: "",
-        avatar: SEAT_AVATARS[p.seat % SEAT_AVATARS.length],
+        avatar: p.avatar_url || SEAT_AVATARS[p.seat % SEAT_AVATARS.length],
         chips: p.chips,
         status,
         roles: mapPlayerRoles(p.seat, state.dealer_seat, sbSeat, bbSeat),
@@ -418,13 +418,15 @@ export default function GamePage() {
       if (s.finished) {
         // Replay mode — load events and build frames
         setIsReplay(true);
-        // Extract player names from the finished state
+        // Extract player names and avatars from the finished state
         const names: Record<string, string> = {};
+        const avatars: Record<string, string> = {};
         for (const p of s.players) {
           if (p.id && p.name) names[p.id] = p.name;
+          if (p.id && p.avatar_url) avatars[p.id] = p.avatar_url;
         }
         fetchGameEvents(gameId).then((events) => {
-          const built = buildReplayFrames(gameId, events, names);
+          const built = buildReplayFrames(gameId, events, names, avatars);
           if (built.length > 0) {
             setFrames(built);
             setFrameIdx(0);
@@ -715,7 +717,7 @@ export default function GamePage() {
                         #{idx + 1}
                       </span>
                       <img
-                        src={SEAT_AVATARS[p.seat % SEAT_AVATARS.length]}
+                        src={p.avatar_url || SEAT_AVATARS[p.seat % SEAT_AVATARS.length]}
                         alt=""
                         className="size-8 rounded-full"
                       />

@@ -96,11 +96,13 @@ func (h *GameProxyHandler) CreateGame(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Look up agent names for display
+	// Look up agent names and avatars for display
 	playerNames := make(map[string]string)
+	playerAvatars := make(map[string]string)
 	for _, id := range req.PlayerIDs {
 		if agent, err := h.agentRepo.GetAgentByID(r.Context(), id); err == nil {
 			playerNames[id] = agent.Name
+			playerAvatars[id] = agent.AvatarURL
 		}
 	}
 
@@ -108,11 +110,12 @@ func (h *GameProxyHandler) CreateGame(w http.ResponseWriter, r *http.Request) {
 	seed := cryptoSeed()
 	var resp natsClient.CreateRoomResponse
 	err = h.nats.RequestJSON(natsClient.SubjectPokerRoomCreate, natsClient.CreateRoomRequest{
-		GameID:      dbGame.ID,
-		PlayerIDs:   req.PlayerIDs,
-		PlayerNames: playerNames,
-		Seed:        seed,
-		EntryFee:    req.EntryFee,
+		GameID:        dbGame.ID,
+		PlayerIDs:     req.PlayerIDs,
+		PlayerNames:   playerNames,
+		PlayerAvatars: playerAvatars,
+		Seed:          seed,
+		EntryFee:      req.EntryFee,
 	}, &resp, natsTimeout)
 	if err != nil {
 		httputil.Error(w, http.StatusServiceUnavailable, "engine_unavailable", "Poker engine unavailable")
@@ -634,6 +637,7 @@ func (h *GameProxyHandler) rebuildFinishedGameState(ctx context.Context, gameID 
 	type playerInfo struct {
 		ID         string   `json:"id"`
 		Name       string   `json:"name,omitempty"`
+		AvatarURL  string   `json:"avatar_url,omitempty"`
 		Seat       int      `json:"seat"`
 		Chips      int      `json:"chips"`
 		Hole       []string `json:"hole,omitempty"`
@@ -799,11 +803,12 @@ func (h *GameProxyHandler) rebuildFinishedGameState(ctx context.Context, gameID 
 		}
 	}
 
-	// Look up agent names
+	// Look up agent names and avatars
 	for _, p := range players {
 		if p.ID != "" && h.agentRepo != nil {
 			if agent, err := h.agentRepo.GetAgentByID(ctx, p.ID); err == nil {
 				p.Name = agent.Name
+				p.AvatarURL = agent.AvatarURL
 			}
 		}
 	}

@@ -28,6 +28,8 @@ type RouterDeps struct {
 	MatchSvc      *matchmaking.Service
 	TwitterClient *twitter.Client
 	Sessions      *auth.SessionManager
+	OwnerRepo     *auth.OwnerRepository
+	TokenStore    *auth.OwnerTokenStore
 	AIRunner      *aibot.Runner
 	AdminPassword string
 	SkipClaim     bool // dev mode: auto-activate agents on registration
@@ -69,11 +71,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Get("/.well-known/skill.md", serveSkillMD)
 
 	// Handlers
-	agentHandler := NewAgentHandler(deps.AgentRepo, deps.ChakraRepo, deps.SkipClaim)
+	agentHandler := NewAgentHandler(deps.AgentRepo, deps.SkipClaim)
 	ownerHandler := NewOwnerHandler(deps.AgentRepo, deps.ChakraRepo, deps.TwitterClient)
 	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.AgentRepo, deps.Settlement)
 	matchHandler := NewMatchmakingHandler(deps.MatchSvc, deps.AgentRepo)
-	authHandler := NewAuthHandler(deps.TwitterClient, deps.Sessions)
+	authHandler := NewAuthHandler(deps.TwitterClient, deps.Sessions, deps.OwnerRepo, deps.TokenStore)
+	devBindHandler := NewDevBindHandler(deps.AgentRepo, deps.OwnerRepo, deps.TokenStore, deps.TwitterClient)
 	adminHandler := NewAdminHandler(deps.AIRunner, deps.AdminPassword)
 
 	// API v1 routes
@@ -91,6 +94,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 			r.Use(middleware.Timeout(30 * time.Second))
 
 			// Public routes
+			r.Get("/stats", agentHandler.PublicStats)
+			r.Get("/leaderboard", agentHandler.Leaderboard)
 			r.Post("/agents/register", agentHandler.Register)
 			r.Get("/agents/{name}", agentHandler.GetByName)
 
@@ -134,6 +139,10 @@ func NewRouter(deps RouterDeps) http.Handler {
 			// Owner routes (JWT session required)
 			r.Route("/owner", func(r chi.Router) {
 				r.Use(auth.RequireOwner(deps.Sessions))
+				r.Get("/me", devBindHandler.GetOwnerMe)
+				r.Post("/bind/preview", devBindHandler.BindPreview)
+				r.Post("/bind/confirm", devBindHandler.BindConfirm)
+				r.Patch("/agent", devBindHandler.UpdateMyAgent)
 				r.Get("/agents", ownerHandler.GetMyAgents)
 				r.Post("/agents/{id}/rotate-key", ownerHandler.RotateKey)
 				r.Post("/agents/{id}/check-in", ownerHandler.CheckIn)

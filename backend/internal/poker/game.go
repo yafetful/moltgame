@@ -53,14 +53,16 @@ type Game struct {
 
 // NewGame creates a new poker tournament game.
 // playerNames is optional: maps player ID → display name.
-func NewGame(id string, playerIDs []string, seed int64, playerNames map[string]string) *Game {
+// playerAvatars is optional: maps player ID → avatar URL.
+func NewGame(id string, playerIDs []string, seed int64, playerNames map[string]string, playerAvatars map[string]string) *Game {
 	players := make([]*Player, len(playerIDs))
 	for i, pid := range playerIDs {
 		players[i] = &Player{
-			ID:    pid,
-			Name:  playerNames[pid],
-			Seat:  i,
-			Chips: StartingChips,
+			ID:        pid,
+			Name:      playerNames[pid],
+			AvatarURL: playerAvatars[pid],
+			Seat:      i,
+			Chips:     StartingChips,
 		}
 	}
 
@@ -265,6 +267,7 @@ func (g *Game) GetGameState(playerID string) GameState {
 		ps := PlayerState{
 			ID:           p.ID,
 			Name:         p.Name,
+			AvatarURL:    p.AvatarURL,
 			Seat:         p.Seat,
 			Chips:        p.Chips,
 			Bet:          p.Bet,      // m2: current round bet

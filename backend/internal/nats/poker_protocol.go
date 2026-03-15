@@ -46,11 +46,12 @@ func SubjectPokerGameOver(roomID string) string {
 
 // CreateRoomRequest is sent by api-gateway to create a poker room.
 type CreateRoomRequest struct {
-	GameID      string            `json:"game_id"`
-	PlayerIDs   []string          `json:"player_ids"`
-	PlayerNames map[string]string `json:"player_names,omitempty"` // id → display name
-	Seed        int64             `json:"seed"`
-	EntryFee    int               `json:"entry_fee"`
+	GameID        string            `json:"game_id"`
+	PlayerIDs     []string          `json:"player_ids"`
+	PlayerNames   map[string]string `json:"player_names,omitempty"`   // id → display name
+	PlayerAvatars map[string]string `json:"player_avatars,omitempty"` // id → avatar URL
+	Seed          int64             `json:"seed"`
+	EntryFee      int               `json:"entry_fee"`
 }
 
 // CreateRoomResponse is returned by poker-engine.

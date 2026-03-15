@@ -22,6 +22,48 @@ func NewAgentRepository(db *pgxpool.Pool) *AgentRepository {
 	return &AgentRepository{db: db}
 }
 
+// CountAgents returns the total number of registered agents.
+func (r *AgentRepository) CountAgents(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM agents").Scan(&count)
+	return count, err
+}
+
+// LeaderboardEntry is a single row in the leaderboard.
+type LeaderboardEntry struct {
+	Name         string  `json:"name"`
+	AvatarURL    string  `json:"avatar_url"`
+	Model        string  `json:"model"`
+	Chakra       int     `json:"chakra"`
+	TrueSkillMu  float64 `json:"trueskill_mu"`
+	GamesPlayed  int     `json:"games_played"`
+	Wins         int     `json:"wins"`
+}
+
+// GetLeaderboard returns all agents ranked by TrueSkill mu descending.
+func (r *AgentRepository) GetLeaderboard(ctx context.Context) ([]LeaderboardEntry, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT a.name, COALESCE(a.avatar_url,''), COALESCE(a.model,''), a.chakra_balance, ROUND(a.trueskill_mu::numeric, 1)::float8,
+			(SELECT COUNT(*) FROM game_players gp WHERE gp.agent_id = a.id),
+			(SELECT COUNT(*) FROM game_players gp JOIN games g ON g.id = gp.game_id WHERE gp.agent_id = a.id AND g.winner_id = a.id)
+		FROM agents a
+		ORDER BY a.trueskill_mu DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []LeaderboardEntry
+	for rows.Next() {
+		var e LeaderboardEntry
+		if err := rows.Scan(&e.Name, &e.AvatarURL, &e.Model, &e.Chakra, &e.TrueSkillMu, &e.GamesPlayed, &e.Wins); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 func (r *AgentRepository) FindAgentByKeyHash(ctx context.Context, keyHash string) (string, error) {
 	var id string
 	err := r.db.QueryRow(ctx,
@@ -126,6 +168,38 @@ func (r *AgentRepository) UpdateAgentProfile(ctx context.Context, id, descriptio
 	return err
 }
 
+// ActivateAgent sets an agent to active and grants initial Chakra without binding an owner.
+// Used by SKIP_CLAIM mode so the agent remains bindable later.
+func (r *AgentRepository) ActivateAgent(ctx context.Context, id string, initialChakra int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	now := time.Now()
+	_, err = tx.Exec(ctx,
+		`UPDATE agents
+		 SET status = 'active', chakra_balance = $2, last_active_at = $3
+		 WHERE id = $1 AND status = 'unclaimed'`,
+		id, initialChakra, now,
+	)
+	if err != nil {
+		return fmt.Errorf("activate agent: %w", err)
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO chakra_transactions (agent_id, amount, type, balance_after, note)
+		 VALUES ($1, $2, 'initial_grant', $2, 'Initial Chakra grant on registration')`,
+		id, initialChakra,
+	)
+	if err != nil {
+		return fmt.Errorf("insert initial chakra tx: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *AgentRepository) ClaimAgent(ctx context.Context, id, twitterID, twitterHandle string, initialChakra int) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -171,6 +245,38 @@ func (r *AgentRepository) FindAgentByClaimToken(ctx context.Context, claimToken 
 		return nil, fmt.Errorf("query agent by claim token: %w", err)
 	}
 	return agent, nil
+}
+
+// FindAgentByVerificationCode looks up an unbound agent by its verification code.
+func (r *AgentRepository) FindAgentByVerificationCode(ctx context.Context, code string) (*models.Agent, error) {
+	agent := &models.Agent{}
+	err := r.db.QueryRow(ctx, `
+		SELECT id, name, COALESCE(model,''), COALESCE(description,''), COALESCE(avatar_url,''),
+		       status, is_claimed, COALESCE(owner_twitter_id,''), verification_code
+		FROM agents
+		WHERE verification_code = $1 AND verification_code != ''`, code,
+	).Scan(
+		&agent.ID, &agent.Name, &agent.Model, &agent.Description, &agent.AvatarURL,
+		&agent.Status, &agent.IsClaimed, &agent.OwnerTwitterID, &agent.VerificationCode,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAgentNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query agent by verification code: %w", err)
+	}
+	return agent, nil
+}
+
+// UpdateAgentByOwner allows a bound owner to update agent profile fields.
+func (r *AgentRepository) UpdateAgentByOwner(ctx context.Context, agentID, model, description, avatarURL string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE agents
+		SET model = $2, description = $3, avatar_url = $4, last_active_at = NOW()
+		WHERE id = $1`,
+		agentID, model, description, avatarURL,
+	)
+	return err
 }
 
 func (r *AgentRepository) RotateAPIKey(ctx context.Context, agentID, newKeyHash string) error {

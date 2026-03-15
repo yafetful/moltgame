@@ -58,6 +58,8 @@ func main() {
 
 	// Initialize repositories
 	agentRepo := auth.NewAgentRepository(db)
+	ownerRepo := auth.NewOwnerRepository(db)
+	tokenStore := auth.NewOwnerTokenStore(rdb)
 	chakraRepo := chakra.NewRepository(db)
 	gameRepository := gameRepo.NewRepository(db)
 
@@ -133,11 +135,13 @@ func main() {
 			}
 		}
 
-		// Look up agent names for display
+		// Look up agent names and avatars for display
 		playerNames := make(map[string]string)
+		playerAvatars := make(map[string]string)
 		for _, p := range players {
 			if agent, err := agentRepo.GetAgentByID(ctx, p.AgentID); err == nil {
 				playerNames[p.AgentID] = agent.Name
+				playerAvatars[p.AgentID] = agent.AvatarURL
 			}
 		}
 
@@ -145,11 +149,12 @@ func main() {
 		seed := cryptoSeed()
 		var resp natsClient.CreateRoomResponse
 		err = nc.RequestJSON(natsClient.SubjectPokerRoomCreate, natsClient.CreateRoomRequest{
-			GameID:      dbGame.ID,
-			PlayerIDs:   playerIDs,
-			PlayerNames: playerNames,
-			Seed:        seed,
-			EntryFee:    entryFee,
+			GameID:        dbGame.ID,
+			PlayerIDs:     playerIDs,
+			PlayerNames:   playerNames,
+			PlayerAvatars: playerAvatars,
+			Seed:          seed,
+			EntryFee:      entryFee,
 		}, &resp, 3*time.Second)
 		if err != nil {
 			return err
@@ -203,6 +208,8 @@ func main() {
 		MatchSvc:      matchSvc,
 		TwitterClient: twitterClient,
 		Sessions:      sessions,
+		OwnerRepo:     ownerRepo,
+		TokenStore:    tokenStore,
 		AIRunner:      aiRunner,
 		AdminPassword: cfg.AdminPassword,
 		SkipClaim:     cfg.SkipClaim,

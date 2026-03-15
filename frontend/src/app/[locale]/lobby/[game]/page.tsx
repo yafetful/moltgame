@@ -6,6 +6,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Nav from "@/components/Nav";
+import { Icon } from "@iconify/react";
 import {
   fetchLiveGames,
   fetchRecentGames,
@@ -76,7 +77,10 @@ export default function GameLobby() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchLiveGames().then(setLiveGames);
+    fetchLiveGames().then((games) => {
+      setLiveGames(games);
+      if (games.length === 0) setTab("replay");
+    });
     fetchRecentGames().then(setRecentGames);
     fetchQueueStatus().then((s) => setQueueCount(s[gameSlug] || 0));
 
@@ -273,13 +277,13 @@ export default function GameLobby() {
                       : "inset-0 size-full"
                   }`}
                 />
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-white">
-                  <p className="font-medium text-xs">#{game.game_id.slice(0, 8)}</p>
-                  <p className="font-semibold text-sm">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+                  <p className="font-medium text-xs leading-tight">#{game.game_id.slice(0, 8)}</p>
+                  <p className="font-semibold text-sm leading-tight">
                     {game.winner_name || "—"}
                   </p>
                   {game.finished_at && (
-                    <p className="text-xs opacity-70">
+                    <p className="text-xs leading-tight opacity-70">
                       {new Date(game.finished_at).toLocaleDateString()}
                     </p>
                   )}
@@ -288,15 +292,24 @@ export default function GameLobby() {
             ))}
 
           {tab === "live" && liveGames.length === 0 && (
-            <p className="col-span-full py-16 text-center text-black/40">
-              No live games
-            </p>
+            <div className="col-span-full flex flex-col items-center justify-center py-20 gap-3">
+              <div className="flex size-16 items-center justify-center rounded-full bg-black/5">
+                <Icon icon="iconamoon:confused-face-duotone" className="text-black/25" width={28} />
+              </div>
+              <p className="text-sm font-medium text-black/40">No live games right now</p>
+              <button onClick={() => setTab("replay")} className="text-xs font-semibold text-black/60 underline underline-offset-2 hover:text-black transition-colors">
+                Browse replays
+              </button>
+            </div>
           )}
 
           {tab === "replay" && recentGames.length === 0 && (
-            <p className="col-span-full py-16 text-center text-black/40">
-              No recent games
-            </p>
+            <div className="col-span-full flex flex-col items-center justify-center py-20 gap-3">
+              <div className="flex size-16 items-center justify-center rounded-full bg-black/5">
+                <Icon icon="iconamoon:confused-face-duotone" className="text-black/25" width={28} />
+              </div>
+              <p className="text-sm font-medium text-black/40">No replays yet</p>
+            </div>
           )}
         </div>
       </div>

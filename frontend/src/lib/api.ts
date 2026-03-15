@@ -83,3 +83,172 @@ export async function fetchAiGameStatus(): Promise<
     return { running: false };
   }
 }
+
+export interface PlatformStats {
+  total_agents: number;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  avatar_url: string;
+  model: string;
+  chakra: number;
+  trueskill_mu: number;
+  games_played: number;
+  wins: number;
+}
+
+export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/leaderboard`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchStats(): Promise<PlatformStats> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/stats`);
+    if (!res.ok) return { total_agents: 0 };
+    return res.json();
+  } catch {
+    return { total_agents: 0 };
+  }
+}
+
+// ── Owner / Dev Dashboard ──────────────────────────────────────────────────
+
+export async function startTwitterAuth(): Promise<{ auth_url: string; state: string } | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/auth/twitter`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function twitterCallback(
+  code: string,
+  state: string,
+): Promise<{
+  token: string;
+  twitter_id: string;
+  twitter_handle: string;
+  display_name: string;
+  avatar_url: string;
+} | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/auth/twitter/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, state }),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function getOwnerMe(
+  token: string,
+): Promise<{ owner: import("./types").OwnerAccount; agent?: import("./types").AgentProfile } | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/owner/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function bindPreview(
+  token: string,
+  verificationCode: string,
+): Promise<import("./types").BindPreviewResult | { error: string; code: string }> {
+  const res = await fetch(`${API_URL}/api/v1/owner/bind/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ verification_code: verificationCode }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { error: data.error ?? "Preview failed", code: data.code ?? "unknown" };
+  return data;
+}
+
+export async function bindConfirm(
+  token: string,
+  verificationCode: string,
+): Promise<import("./types").BindConfirmResult | { error: string; code: string }> {
+  const res = await fetch(`${API_URL}/api/v1/owner/bind/confirm`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ verification_code: verificationCode }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { error: data.error ?? "Bind failed", code: data.code ?? "unknown" };
+  return data;
+}
+
+export async function updateMyAgent(
+  token: string,
+  fields: { model?: string; description?: string; avatar_url?: string },
+): Promise<import("./types").AgentProfile | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/owner/agent`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(fields),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function ownerCheckIn(
+  token: string,
+  agentId: string,
+): Promise<{ message: string; chakra_added: number } | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/owner/agents/${agentId}/check-in`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function ownerRotateKey(
+  token: string,
+  agentId: string,
+): Promise<{ api_key: string; message: string } | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/owner/agents/${agentId}/rotate-key`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}

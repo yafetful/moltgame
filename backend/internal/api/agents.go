@@ -2,24 +2,41 @@ package api
 
 import (
 	"errors"
+	"hash/fnv"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/moltgame/backend/internal/auth"
-	"github.com/moltgame/backend/internal/chakra"
-	"github.com/moltgame/backend/internal/models"
 	"github.com/moltgame/backend/pkg/httputil"
 )
 
-type AgentHandler struct {
-	repo       *auth.AgentRepository
-	chakraRepo *chakra.Repository
-	skipClaim  bool
+// DefaultAvatars is the list of 24 pre-set animal avatar paths.
+var DefaultAvatars = []string{
+	"/avatars/01-fox.png", "/avatars/02-koala.png", "/avatars/03-owl.png",
+	"/avatars/04-cat.png", "/avatars/05-bear.png", "/avatars/06-rabbit.png",
+	"/avatars/07-wolf.png", "/avatars/08-raccoon.png", "/avatars/09-tiger.png",
+	"/avatars/10-penguin.png", "/avatars/11-monkey.png", "/avatars/12-eagle.png",
+	"/avatars/13-crocodile.png", "/avatars/14-deer.png", "/avatars/15-panda.png",
+	"/avatars/16-lion.png", "/avatars/17-parrot.png", "/avatars/18-flamingo.png",
+	"/avatars/19-hedgehog.png", "/avatars/20-red-panda.png", "/avatars/21-horse.png",
+	"/avatars/22-elephant.png", "/avatars/23-chameleon.png", "/avatars/24-hamster.png",
 }
 
-func NewAgentHandler(repo *auth.AgentRepository, chakraRepo *chakra.Repository, skipClaim bool) *AgentHandler {
-	return &AgentHandler{repo: repo, chakraRepo: chakraRepo, skipClaim: skipClaim}
+// DefaultAvatarForName returns a deterministic avatar path based on the agent name.
+func DefaultAvatarForName(name string) string {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return DefaultAvatars[int(h.Sum32())%len(DefaultAvatars)]
+}
+
+type AgentHandler struct {
+	repo      *auth.AgentRepository
+	skipClaim bool
+}
+
+func NewAgentHandler(repo *auth.AgentRepository, skipClaim bool) *AgentHandler {
+	return &AgentHandler{repo: repo, skipClaim: skipClaim}
 }
 
 type RegisterRequest struct {
@@ -52,6 +69,11 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Assign default avatar if not provided
+	if req.AvatarURL == "" {
+		req.AvatarURL = DefaultAvatarForName(req.Name)
+	}
+
 	apiKey, keyHash, err := auth.GenerateAPIKey()
 	if err != nil {
 		httputil.Error(w, http.StatusInternalServerError, "key_gen_error", "Failed to generate API key")
@@ -80,21 +102,21 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dev mode: auto-activate agent, grant Chakra, skip Twitter claim
+	// Dev mode: auto-activate agent, grant Chakra, skip Twitter claim.
+	// Uses ActivateAgent (not ClaimAgent) so owner_twitter_id stays empty
+	// and the real dev can still bind later via /owner/bind/confirm.
 	if h.skipClaim {
-		if err := h.repo.ClaimAgent(r.Context(), agent.ID, "dev", "dev", 2000); err != nil {
+		if err := h.repo.ActivateAgent(r.Context(), agent.ID, 2000); err != nil {
 			slog.Warn("skip-claim auto-activate failed", "agent_id", agent.ID, "error", err)
 		} else {
-			if err := h.chakraRepo.Credit(r.Context(), agent.ID, 0, models.ChakraTypeInitialGrant, nil, "Auto-activated (dev mode)"); err != nil {
-				slog.Warn("skip-claim chakra note failed", "agent_id", agent.ID, "error", err)
-			}
 			slog.Info("agent auto-activated (SKIP_CLAIM)", "agent_id", agent.ID, "name", req.Name)
 		}
 		httputil.JSON(w, http.StatusCreated, RegisterResponse{
-			ID:      agent.ID,
-			Name:    agent.Name,
-			APIKey:  apiKey,
-			Message: "Agent registered and auto-activated (dev mode). Save your API key!",
+			ID:               agent.ID,
+			Name:             agent.Name,
+			APIKey:           apiKey,
+			VerificationCode: verificationCode,
+			Message:          "Agent registered and auto-activated (dev mode). Save your API key! Verification code: " + verificationCode,
 		})
 		return
 	}
@@ -176,4 +198,27 @@ func (h *AgentHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"status":     agent.Status,
 		"is_claimed": agent.IsClaimed,
 	})
+}
+
+// PublicStats returns aggregate platform stats (no auth required).
+// GET /api/v1/stats
+func (h *AgentHandler) PublicStats(w http.ResponseWriter, r *http.Request) {
+	count, err := h.repo.CountAgents(r.Context())
+	if err != nil {
+		count = 0
+	}
+	httputil.JSON(w, http.StatusOK, map[string]int{
+		"total_agents": count,
+	})
+}
+
+// Leaderboard returns ranked agents with stats.
+// GET /api/v1/leaderboard
+func (h *AgentHandler) Leaderboard(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.repo.GetLeaderboard(r.Context())
+	if err != nil {
+		httputil.Error(w, http.StatusInternalServerError, "query_failed", "Failed to fetch leaderboard")
+		return
+	}
+	httputil.JSON(w, http.StatusOK, entries)
 }

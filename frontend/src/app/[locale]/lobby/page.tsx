@@ -14,6 +14,7 @@ const GAMES = [
     slug: "poker",
     icon: "/icons/poker.png",
     scene: "/images/scene-poker.png",
+    enabled: true,
   },
   {
     key: "werewolf" as const,
@@ -21,17 +22,25 @@ const GAMES = [
     slug: "werewolf",
     icon: "/icons/werewolves.png",
     scene: "/images/scene-werewolf.png",
+    enabled: false,
   },
 ];
 
 export default function Lobby() {
   const t = useTranslations("lobby");
-  const [liveCount, setLiveCount] = useState(0);
-  const [recentCount, setRecentCount] = useState(0);
+  const [liveByType, setLiveByType] = useState<Record<string, number>>({});
+  const [recentByType, setRecentByType] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    fetchLiveGames().then((g) => setLiveCount(g.length));
-    fetchRecentGames().then((g) => setRecentCount(g.length));
+    // Live games are all poker for now (no game_type field)
+    fetchLiveGames().then((g) => setLiveByType({ poker: g.length }));
+    fetchRecentGames().then((games) => {
+      const counts: Record<string, number> = {};
+      for (const g of games) {
+        counts[g.game_type] = (counts[g.game_type] || 0) + 1;
+      }
+      setRecentByType(counts);
+    });
   }, []);
 
   return (
@@ -39,12 +48,9 @@ export default function Lobby() {
       <Nav variant="logo" />
 
       <div className="mx-auto flex max-w-5xl flex-col gap-8 px-8 pt-8 pb-16">
-        {GAMES.map((game) => (
-          <Link
-            key={game.key}
-            href={`/lobby/${game.slug}`}
-            className="flex flex-col gap-4 transition-opacity hover:opacity-80"
-          >
+        {GAMES.map((game) => {
+          const className = `flex flex-col gap-4 transition-opacity ${game.enabled ? "hover:opacity-80" : "grayscale opacity-50 cursor-default"}`;
+          const inner = (<>
             {/* Header row */}
             <div className="flex items-center justify-between px-6">
               {/* Left: icon + text */}
@@ -73,7 +79,7 @@ export default function Lobby() {
                     {t("liveGames")}
                   </p>
                   <p className="font-black text-3xl text-black">
-                    {liveCount}
+                    {liveByType[game.slug] || 0}
                   </p>
                 </div>
                 <div className="flex flex-col items-center gap-1">
@@ -81,14 +87,14 @@ export default function Lobby() {
                     {t("gamesPlayed")}
                   </p>
                   <p className="font-black text-3xl text-black">
-                    {recentCount.toLocaleString()}
+                    {(recentByType[game.slug] || 0).toLocaleString()}
                   </p>
                 </div>
               </div>
             </div>
 
             {/* Scene image */}
-            <div className="overflow-hidden rounded-3xl border-4 border-black">
+            <div className="relative overflow-hidden rounded-3xl border-4 border-black">
               <Image
                 src={game.scene}
                 alt={t(game.key)}
@@ -96,9 +102,25 @@ export default function Lobby() {
                 height={360}
                 className="w-full object-cover"
               />
+              {!game.enabled && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <p className="text-4xl font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                    Coming Soon
+                  </p>
+                </div>
+              )}
             </div>
-          </Link>
-        ))}
+          </>);
+          return game.enabled ? (
+            <Link key={game.key} href={`/lobby/${game.slug}`} className={className}>
+              {inner}
+            </Link>
+          ) : (
+            <div key={game.key} className={className}>
+              {inner}
+            </div>
+          );
+        })}
       </div>
     </main>
   );

@@ -31,6 +31,7 @@ export function buildReplayFrames(
   gameId: string,
   events: GameEvent[],
   playerNames: Record<string, string>,
+  playerAvatars?: Record<string, string>,
 ): ReplayFrame[] {
   const frames: ReplayFrame[] = [];
 
@@ -139,6 +140,7 @@ export function buildReplayFrames(
           const pl = players[ep.seat];
           pl.id = ep.id;
           pl.name = getPlayerName(ep.id, ep.seat);
+          pl.avatar_url = playerAvatars?.[ep.id];
           pl.chips = ep.chips;
           pl.folded = false;
           pl.all_in = false;

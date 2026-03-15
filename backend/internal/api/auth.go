@@ -13,17 +13,21 @@ import (
 type AuthHandler struct {
 	twitterClient *twitter.Client
 	sessions      *auth.SessionManager
+	ownerRepo     *auth.OwnerRepository
+	tokenStore    *auth.OwnerTokenStore
 
 	// In-memory store for OAuth state → code_verifier mapping.
-	// In production, use Redis with TTL.
-	mu       sync.RWMutex
-	pending  map[string]string // state → code_verifier
+	// TODO: migrate to Redis with TTL for multi-instance resilience.
+	mu      sync.RWMutex
+	pending map[string]string // state → code_verifier
 }
 
-func NewAuthHandler(tc *twitter.Client, sm *auth.SessionManager) *AuthHandler {
+func NewAuthHandler(tc *twitter.Client, sm *auth.SessionManager, ownerRepo *auth.OwnerRepository, tokenStore *auth.OwnerTokenStore) *AuthHandler {
 	return &AuthHandler{
 		twitterClient: tc,
 		sessions:      sm,
+		ownerRepo:     ownerRepo,
+		tokenStore:    tokenStore,
 		pending:       make(map[string]string),
 	}
 }
@@ -85,12 +89,26 @@ func (h *AuthHandler) TwitterCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user info
+	// Get user info (includes profile_image_url)
 	user, err := h.twitterClient.GetMe(tok.AccessToken)
 	if err != nil {
 		slog.Error("twitter get user failed", "error", err)
 		httputil.Error(w, http.StatusBadGateway, "user_fetch_error", "Failed to fetch Twitter user info")
 		return
+	}
+
+	// Persist owner record and OAuth tokens
+	if h.ownerRepo != nil {
+		if err := h.ownerRepo.UpsertOwner(r.Context(), user.ID, user.Username, user.Name, user.ProfileImageURL); err != nil {
+			slog.Warn("upsert owner failed", "error", err, "twitter_id", user.ID)
+			// non-fatal: continue even if DB write fails
+		}
+	}
+	if h.tokenStore != nil {
+		if err := h.tokenStore.SaveTokens(r.Context(), user.ID, tok.AccessToken, tok.RefreshToken); err != nil {
+			slog.Warn("save owner tokens failed", "error", err, "twitter_id", user.ID)
+			// non-fatal: dev can still re-login later
+		}
 	}
 
 	// Create session JWT
@@ -105,5 +123,6 @@ func (h *AuthHandler) TwitterCallback(w http.ResponseWriter, r *http.Request) {
 		"twitter_id":     user.ID,
 		"twitter_handle": user.Username,
 		"display_name":   user.Name,
+		"avatar_url":     user.ProfileImageURL,
 	})
 }

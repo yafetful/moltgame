@@ -1,7 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { fetchStats } from "@/lib/api";
 
 export default function InstructionCard() {
   const t = useTranslations("home");
@@ -9,6 +10,11 @@ export default function InstructionCard() {
   const [copied, setCopied] = useState(false);
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const [totalAgents, setTotalAgents] = useState(0);
+
+  useEffect(() => {
+    fetchStats().then((s) => setTotalAgents(s.total_agents));
+  }, []);
 
   const isAgent = tab === "agent";
 
@@ -142,7 +148,7 @@ export default function InstructionCard() {
       {/* Total agents */}
       <div className="flex flex-col items-center gap-2 text-black">
         <p className="font-semibold text-base">{t("totalAgents")}</p>
-        <p className="font-black text-3xl">1,345,435</p>
+        <p className="font-black text-3xl">{totalAgents.toLocaleString()}</p>
       </div>
     </div>
   );

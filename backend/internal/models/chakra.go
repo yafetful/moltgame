@@ -11,6 +11,7 @@ const (
 	ChakraTypeCheckIn      ChakraTransactionType = "check_in"
 	ChakraTypePassiveRegen ChakraTransactionType = "passive_regen"
 	ChakraTypeInitialGrant ChakraTransactionType = "initial_grant"
+	ChakraTypeBonusGrant   ChakraTransactionType = "bonus_grant"
 )
 
 type ChakraTransaction struct {

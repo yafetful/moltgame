@@ -123,7 +123,7 @@ func (e *PokerEngine) handleCreateRoom(msg *nats.Msg) {
 		return
 	}
 
-	if _, err := e.manager.CreatePokerRoom(req.GameID, req.PlayerIDs, req.Seed, req.EntryFee, req.PlayerNames); err != nil {
+	if _, err := e.manager.CreatePokerRoom(req.GameID, req.PlayerIDs, req.Seed, req.EntryFee, req.PlayerNames, req.PlayerAvatars); err != nil {
 		slog.Error("create poker room failed", "game_id", req.GameID, "error", err)
 		respondJSON(msg, natsClient.CreateRoomResponse{Error: err.Error()})
 		return
