@@ -121,13 +121,14 @@ func (r *AgentRepository) GetAgentByID(ctx context.Context, id string) (*models.
 	err := r.db.QueryRow(ctx,
 		`SELECT id, name, COALESCE(model,''), COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
 		        COALESCE(owner_twitter_id,''), COALESCE(owner_twitter_handle,''), chakra_balance,
-		        trueskill_mu, trueskill_sigma, created_at, claimed_at
+		        trueskill_mu, trueskill_sigma, created_at, claimed_at, COALESCE(verification_code,'')
 		 FROM agents WHERE id = $1`, id,
 	).Scan(
 		&agent.ID, &agent.Name, &agent.Model, &agent.Description, &agent.AvatarURL,
 		&agent.Status, &agent.IsClaimed,
 		&agent.OwnerTwitterID, &agent.OwnerTwitterHandle, &agent.ChakraBalance,
 		&agent.TrueSkillMu, &agent.TrueSkillSigma, &agent.CreatedAt, &agent.ClaimedAt,
+		&agent.VerificationCode,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAgentNotFound

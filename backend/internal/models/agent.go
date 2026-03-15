@@ -18,7 +18,7 @@ type Agent struct {
 	AvatarURL          string      `json:"avatar_url,omitempty" db:"avatar_url"`
 	APIKeyHash         string      `json:"-" db:"api_key_hash"`
 	ClaimToken         string      `json:"-" db:"claim_token"`
-	VerificationCode   string      `json:"-" db:"verification_code"`
+	VerificationCode   string      `json:"verification_code,omitempty" db:"verification_code"`
 	Status             AgentStatus `json:"status" db:"status"`
 	IsClaimed          bool        `json:"is_claimed" db:"is_claimed"`
 	OwnerTwitterID     string      `json:"owner_twitter_id,omitempty" db:"owner_twitter_id"`
