@@ -1,6 +1,13 @@
 import type { LiveGame, RecentGame, ApiGameState } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+
+/** Resolves /uploads/ relative paths to absolute API URLs. Other URLs pass through unchanged. */
+export function resolveAvatarUrl(url: string | undefined | null): string {
+  if (!url) return "";
+  if (url.startsWith("/uploads/")) return `${API_URL}${url}`;
+  return url;
+}
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8081";
 
 export async function fetchLiveGames(): Promise<LiveGame[]> {
@@ -224,11 +231,53 @@ export async function updateMyAgent(
 export async function ownerCheckIn(
   token: string,
   agentId: string,
-): Promise<{ message: string; chakra_added: number } | null> {
+): Promise<{ message: string; chakra_added: number; next_check_in: string } | { code: string; error: string; next_check_in: string } | null> {
   try {
     const res = await fetch(`${API_URL}/api/v1/owner/agents/${agentId}/check-in`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 429 || res.ok) return res.json();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export interface AgentHistoryEntry {
+  game_id: string;
+  game_type: string;
+  final_rank?: number;
+  chakra_won: number;
+  chakra_lost: number;
+  players: number;
+  finished_at?: string;
+}
+
+export async function fetchOwnerAgentHistory(token: string): Promise<AgentHistoryEntry[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/owner/agent/history`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function uploadAvatar(
+  token: string,
+  agentId: string,
+  file: File,
+): Promise<{ avatar_url: string } | null> {
+  try {
+    const form = new FormData();
+    form.append("avatar", file);
+    const res = await fetch(`${API_URL}/api/v1/owner/agents/${agentId}/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
     });
     if (!res.ok) return null;
     return res.json();

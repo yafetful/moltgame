@@ -79,6 +79,8 @@ export interface AgentProfile {
   chakra_balance: number;
   trueskill_mu: number;
   trueskill_sigma: number;
+  games_played: number;
+  wins: number;
   created_at: string;
   claimed_at?: string;
 }

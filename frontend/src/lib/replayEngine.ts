@@ -17,6 +17,8 @@ export interface ReplayFrame {
   reason?: string;
   /** Winners from pot_awarded event (for animation) */
   potAwardWinners?: { seat: number; amount: number }[];
+  /** Hand descriptions from showdown (seat → "Full House, Kings over Aces") */
+  playerHandDescs?: Record<number, string>;
 }
 
 // Number of seats in a standard poker game
@@ -52,8 +54,11 @@ export function buildReplayFrames(
   const playerBets: number[] = new Array(NUM_SEATS).fill(0);
   const playerTotalBets: number[] = new Array(NUM_SEATS).fill(0);
 
+  // Running hand descriptions — set at showdown, cleared each hand
+  let currentHandDescs: Record<number, string> = {};
+
   function snapshot(label: string, eventType: string, action?: { seat: number; reason?: string }) {
-    frames.push({
+    const frame: ReplayFrame = {
       state: {
         game_id: gameId,
         hand_num: handNum,
@@ -72,16 +77,47 @@ export function buildReplayFrames(
       eventType,
       actionSeat: action?.seat,
       reason: action?.reason,
-    });
+    };
+    if (Object.keys(currentHandDescs).length > 0) {
+      frame.playerHandDescs = { ...currentHandDescs };
+    }
+    frames.push(frame);
   }
 
   function computePots(): { amount: number; eligible: number[] }[] {
     const totalPot = playerTotalBets.reduce((a, b) => a + b, 0);
     if (totalPot <= 0) return [];
-    const eligible = players
-      .filter((p) => !p.folded && !p.eliminated)
-      .map((p) => p.seat);
-    return [{ amount: totalPot, eligible }];
+
+    // Collect unique sorted bet levels to compute side pots correctly
+    const levels = [...new Set(playerTotalBets.filter((b) => b > 0))].sort(
+      (a, b) => a - b,
+    );
+
+    if (levels.length <= 1) {
+      // No side pots — single level
+      const eligible = players
+        .filter((p) => !p.folded && !p.eliminated)
+        .map((p) => p.seat);
+      return [{ amount: totalPot, eligible }];
+    }
+
+    // Multi-level: compute one pot per unique bet level
+    const pots: { amount: number; eligible: number[] }[] = [];
+    let prevLevel = 0;
+    for (const level of levels) {
+      const range = level - prevLevel;
+      // Seats whose total_bet >= level contributed to this pot
+      const contributorCount = playerTotalBets.filter((b) => b >= level).length;
+      const potAmount = range * contributorCount;
+      if (potAmount > 0) {
+        const eligible = players
+          .filter((p, s) => playerTotalBets[s] >= level && !p.folded && !p.eliminated)
+          .map((p) => p.seat);
+        pots.push({ amount: potAmount, eligible });
+      }
+      prevLevel = level;
+    }
+    return pots;
   }
 
   function getPlayerName(id: string, seat: number): string {
@@ -115,6 +151,7 @@ export function buildReplayFrames(
         actionOn = -1;
         playerBets.fill(0);
         playerTotalBets.fill(0);
+        currentHandDescs = {};
 
         if (!initialized) {
           // First hand — create player entries
@@ -301,11 +338,15 @@ export function buildReplayFrames(
           hand_desc: string;
         }[];
         if (sdPlayers) {
+          const descs: Record<number, string> = {};
           for (const sp of sdPlayers) {
             if (players[sp.seat]) {
               players[sp.seat].hole = sp.hole;
             }
+            if (sp.hand_desc) descs[sp.seat] = sp.hand_desc;
           }
+          // Persist hand descriptions into subsequent frames (pot_awarded, eliminated, etc.)
+          currentHandDescs = descs;
         }
         snapshot("Showdown", evt.event_type);
         break;
@@ -366,6 +407,7 @@ export function buildReplayFrames(
         }
         playerTotalBets.fill(0);
         resetBettingRound();
+        currentHandDescs = {};
         snapshot(`Next Hand #${handNum + 1}`, evt.event_type);
         break;
       }

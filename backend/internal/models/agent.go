@@ -24,8 +24,10 @@ type Agent struct {
 	OwnerTwitterID     string      `json:"owner_twitter_id,omitempty" db:"owner_twitter_id"`
 	OwnerTwitterHandle string      `json:"owner_twitter_handle,omitempty" db:"owner_twitter_handle"`
 	ChakraBalance      int         `json:"chakra_balance" db:"chakra_balance"`
-	TrueSkillMu        float64    `json:"trueskill_mu" db:"trueskill_mu"`
-	TrueSkillSigma     float64    `json:"trueskill_sigma" db:"trueskill_sigma"`
+	TrueSkillMu        float64     `json:"trueskill_mu" db:"trueskill_mu"`
+	TrueSkillSigma     float64     `json:"trueskill_sigma" db:"trueskill_sigma"`
+	GamesPlayed        int         `json:"games_played" db:"games_played"`
+	Wins               int         `json:"wins" db:"wins"`
 	CreatedAt          time.Time   `json:"created_at" db:"created_at"`
 	ClaimedAt          *time.Time  `json:"claimed_at,omitempty" db:"claimed_at"`
 }

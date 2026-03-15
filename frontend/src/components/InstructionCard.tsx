@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useState, useEffect } from "react";
+import { Link } from "@/i18n/navigation";
 import { fetchStats } from "@/lib/api";
 
 export default function InstructionCard() {
@@ -62,10 +63,15 @@ export default function InstructionCard() {
   };
 
   return (
-    <div className="absolute right-8 top-[214px] z-30 flex flex-col gap-4">
-      {/* Main card */}
-      <div
-        className={`flex flex-col gap-8 p-6 transition-colors duration-300 ${
+    <div className="absolute left-1/2 top-[157px] z-30 flex w-[300px] -translate-x-1/2 flex-col gap-4 md:left-auto md:translate-x-0 md:right-8 md:top-[214px] md:w-auto">
+      {/* Total agents — first on mobile, last on desktop */}
+      <div className="order-1 flex flex-col items-center gap-2 text-black md:order-2">
+        <p className="font-semibold text-base">{t("totalAgents")}</p>
+        <p className="font-black text-3xl">{totalAgents.toLocaleString()}</p>
+      </div>
+
+      {/* Main card — second on mobile, first on desktop */}
+      <div className={`order-2 flex flex-col gap-8 p-6 transition-colors duration-300 md:order-1 ${
           isAgent ? "bg-black" : "bg-[#fff2eb]"
         }`}
       >
@@ -127,12 +133,13 @@ export default function InstructionCard() {
               className="flex gap-2"
               onMouseLeave={() => setHoveredBtn(null)}
             >
-              <button
+              <Link
+                href="/doc"
                 onMouseEnter={() => setHoveredBtn("view")}
                 {...btnStyle("view", "-6deg", false)}
               >
                 {t("view")}
-              </button>
+              </Link>
               <button
                 onClick={handleCopy}
                 onMouseEnter={() => setHoveredBtn("copy")}
@@ -143,12 +150,6 @@ export default function InstructionCard() {
             </div>
           </div>
         )}
-      </div>
-
-      {/* Total agents */}
-      <div className="flex flex-col items-center gap-2 text-black">
-        <p className="font-semibold text-base">{t("totalAgents")}</p>
-        <p className="font-black text-3xl">{totalAgents.toLocaleString()}</p>
       </div>
     </div>
   );

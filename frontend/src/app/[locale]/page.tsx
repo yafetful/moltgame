@@ -10,14 +10,13 @@ export default function Home() {
   const t = useTranslations("home");
 
   return (
-    <main className="relative h-screen overflow-hidden bg-gradient-to-b from-[#f9a451] via-[#ffe2c7] via-[70%] to-[#ffc687]">
+    <main className="relative h-dvh overflow-hidden bg-gradient-to-b from-[#f9a451] via-[#ffe2c7] via-[70%] to-[#ffc687]">
       <Nav />
 
-      {/* Floating clouds */}
+      {/* Floating clouds — both mobile and desktop */}
       <FloatingClouds />
 
-      {/* Landscape background — anchored to bottom, auto height from viewBox */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden md:block">
         <img
           src="/images/landscape.svg"
           alt=""
@@ -26,8 +25,7 @@ export default function Home() {
         />
       </div>
 
-      {/* Center: Logo + Tagline */}
-      <div className="relative z-10 flex flex-col items-center pt-20">
+      <div className="relative z-10 hidden flex-col items-center pt-20 md:flex">
         <Image
           src="/logo/logo-square.png"
           alt="MoltGame"
@@ -41,13 +39,21 @@ export default function Home() {
         </p>
       </div>
 
-      {/* Hero characters video */}
+      {/* Hero characters — video on both platforms, fallback images handled inside HeroSection */}
       <HeroSection />
 
-      {/* Instruction card */}
-      <InstructionCard />
+      {/* Mobile only: city background */}
+      <div className="pointer-events-none absolute bottom-0 left-1/2 z-[5] h-[400px] w-[960px] -translate-x-1/2 md:hidden">
+        <img
+          src="/images/mobile-bg.svg"
+          alt=""
+          aria-hidden
+          className="size-full"
+        />
+      </div>
 
-      {/* Game cards at bottom */}
+      {/* === Both === */}
+      <InstructionCard />
       <GameCards />
     </main>
   );

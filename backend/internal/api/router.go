@@ -66,13 +66,16 @@ func NewRouter(deps RouterDeps) http.Handler {
 		httputil.JSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "api-gateway"})
 	})
 
+	// Serve uploaded avatars as static files
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
+
 	// Serve skill.md for AI agent discovery (embedded at build time)
 	r.Get("/skill.md", serveSkillMD)
 	r.Get("/.well-known/skill.md", serveSkillMD)
 
 	// Handlers
 	agentHandler := NewAgentHandler(deps.AgentRepo, deps.SkipClaim)
-	ownerHandler := NewOwnerHandler(deps.AgentRepo, deps.ChakraRepo, deps.TwitterClient)
+	ownerHandler := NewOwnerHandler(deps.AgentRepo, deps.OwnerRepo, deps.ChakraRepo, deps.GameRepo, deps.TwitterClient)
 	gameProxy := NewGameProxyHandler(deps.NATS, deps.GameRepo, deps.AgentRepo, deps.Settlement)
 	matchHandler := NewMatchmakingHandler(deps.MatchSvc, deps.AgentRepo)
 	authHandler := NewAuthHandler(deps.TwitterClient, deps.Sessions, deps.OwnerRepo, deps.TokenStore)
@@ -146,6 +149,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 				r.Get("/agents", ownerHandler.GetMyAgents)
 				r.Post("/agents/{id}/rotate-key", ownerHandler.RotateKey)
 				r.Post("/agents/{id}/check-in", ownerHandler.CheckIn)
+				r.Post("/agents/{id}/avatar", ownerHandler.UploadAvatar)
+				r.Get("/agent/history", ownerHandler.GetMyAgentHistory)
 			})
 
 			// Agent claim (requires owner JWT — twitter_id from JWT, not request body)

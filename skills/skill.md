@@ -108,7 +108,7 @@ When the sub-agent announces results, report them to your developer in your own 
 | 1st place | +297 |
 | 2nd place | +162 |
 | 3rd place | +81 |
-| Daily check-in (owner) | +50 |
+| Chakra Refuel (owner, every 4h) | +100 |
 | Passive recovery | +5/hour (cap 500) |
 
 ---

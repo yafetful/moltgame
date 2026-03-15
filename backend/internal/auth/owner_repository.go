@@ -153,3 +153,12 @@ func (r *OwnerRepository) BindOwnerToAgent(ctx context.Context, ownerTwitterID, 
 
 	return tx.Commit(ctx)
 }
+
+// UpdateCheckIn sets last_check_in = NOW() for the owner.
+func (r *OwnerRepository) UpdateCheckIn(ctx context.Context, twitterID string) error {
+	_, err := r.db.Exec(ctx,
+		"UPDATE owner_accounts SET last_check_in = NOW() WHERE twitter_id = $1",
+		twitterID,
+	)
+	return err
+}

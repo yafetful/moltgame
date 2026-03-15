@@ -6,11 +6,12 @@ export interface PokerCardProps {
   suit?: Suit;
   value?: number; // 1-13
   faceDown?: boolean;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
   className?: string;
 }
 
 const SIZE = {
+  xs: { w: 32, h: 42 },
   sm: { w: 48, h: 62 },
   md: { w: 64, h: 83 },
 } as const;

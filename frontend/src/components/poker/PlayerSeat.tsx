@@ -17,6 +17,8 @@ export interface PlayerSeatProps {
   reason?: string;
   /** Countdown progress 0–1 (1 = full, 0 = empty). Only rendered when active. */
   countdown?: number;
+  /** Hand description shown during showdown (e.g. "Full House, Kings over Aces") */
+  handDesc?: string;
 }
 
 const RING_COLOR: Record<PlayerStatus, string> = {
@@ -119,6 +121,7 @@ export default function PlayerSeat({
   mirrored = false,
   reason,
   countdown,
+  handDesc,
 }: PlayerSeatProps) {
   const chipLabel =
     status === "allIn"
@@ -131,23 +134,31 @@ export default function PlayerSeat({
     <div className={`relative flex w-[300px] flex-col items-center gap-1 ${status === "eliminated" ? "opacity-50" : ""}`}>
       {/* Hand cards — hidden when eliminated */}
       {status !== "eliminated" && (
-        <div className="relative flex justify-center gap-1">
-          {cards.map((c, i) => (
-            <div key={i} className="relative">
-              <PokerCard
-                suit={c.suit}
-                value={c.value}
-                faceDown={c.faceDown}
-                size="sm"
-              />
-            </div>
-          ))}
-          {/* Fold overlay centered on both cards */}
-          {status === "folded" && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="rounded-full bg-[#ff4343] px-2 py-1 text-xs font-medium text-white">
-                Fold
-              </span>
+        <div className="flex flex-col items-center gap-0.5">
+          <div className="relative flex justify-center gap-1">
+            {cards.map((c, i) => (
+              <div key={i} className="relative">
+                <PokerCard
+                  suit={c.suit}
+                  value={c.value}
+                  faceDown={c.faceDown}
+                  size="sm"
+                />
+              </div>
+            ))}
+            {/* Fold overlay centered on both cards */}
+            {status === "folded" && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="rounded-full bg-[#ff4343] px-2 py-1 text-xs font-medium text-white">
+                  Fold
+                </span>
+              </div>
+            )}
+          </div>
+          {/* Hand description shown at showdown */}
+          {handDesc && (
+            <div className="max-w-[160px] truncate rounded-full bg-black/80 px-2 py-0.5 text-xs font-semibold text-white">
+              {handDesc}
             </div>
           )}
         </div>

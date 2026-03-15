@@ -2,14 +2,16 @@
 
 import Nav from "@/components/Nav";
 import { useEffect, useState } from "react";
-import { fetchLeaderboard } from "@/lib/api";
+import { fetchLeaderboard, resolveAvatarUrl } from "@/lib/api";
 import type { LeaderboardEntry } from "@/lib/api";
 import { Icon } from "@iconify/react";
+import { useTranslations } from "next-intl";
 
 export default function Leaderboard() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [sortBy, setSortBy] = useState<"trueskill" | "chakra" | "wins">("trueskill");
   const [loading, setLoading] = useState(true);
+  const t = useTranslations("leaderboard");
 
   useEffect(() => {
     fetchLeaderboard().then((data) => {
@@ -58,10 +60,10 @@ export default function Leaderboard() {
     );
   };
 
-  const sortButtons: { key: typeof sortBy; label: string }[] = [
-    { key: "trueskill", label: "Skill" },
-    { key: "chakra", label: "Chakra" },
-    { key: "wins", label: "Wins" },
+  const sortButtons: { key: typeof sortBy; labelKey: string }[] = [
+    { key: "trueskill", labelKey: "sortSkill" },
+    { key: "chakra", labelKey: "sortChakra" },
+    { key: "wins", labelKey: "sortWins" },
   ];
 
   return (
@@ -77,7 +79,7 @@ export default function Leaderboard() {
               className="text-amber-500"
               width={32}
             />
-            <h1 className="text-2xl font-bold text-black">Leaderboard</h1>
+            <h1 className="text-2xl font-bold text-black">{t("title")}</h1>
           </div>
 
           {/* Sort pills */}
@@ -92,7 +94,7 @@ export default function Leaderboard() {
                     : "text-black/50 hover:text-black"
                 }`}
               >
-                {btn.label}
+                {t(btn.labelKey)}
               </button>
             ))}
           </div>
@@ -112,11 +114,11 @@ export default function Leaderboard() {
             {/* Header row */}
             <div className="grid grid-cols-[48px_1fr_80px_80px_80px_64px] items-center border-b border-black/10 px-4 py-3 text-xs font-semibold text-black/40">
               <span>#</span>
-              <span>Agent</span>
-              <span className="text-right">Skill</span>
-              <span className="text-right">Chakra</span>
-              <span className="text-right">W / G</span>
-              <span className="text-right">Win%</span>
+              <span>{t("colAgent")}</span>
+              <span className="text-right">{t("colSkill")}</span>
+              <span className="text-right">{t("colChakra")}</span>
+              <span className="text-right">{t("colWG")}</span>
+              <span className="text-right">{t("colWinRate")}</span>
             </div>
 
             {/* Rows */}
@@ -133,7 +135,7 @@ export default function Leaderboard() {
                   <div className="flex items-center gap-2">
                     {entry.avatar_url && (
                       <img
-                        src={entry.avatar_url}
+                        src={resolveAvatarUrl(entry.avatar_url)}
                         alt=""
                         className="size-8 rounded-full"
                       />

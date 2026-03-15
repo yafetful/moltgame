@@ -11,7 +11,7 @@ const FLAG_ICONS: Record<Locale, string> = {
   ja: "/flags/jp.svg",
 };
 
-export default function LocaleSwitcher() {
+export default function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
   const t = useTranslations("language");
   const locale = useLocale() as Locale;
   const router = useRouter();
@@ -43,13 +43,13 @@ export default function LocaleSwitcher() {
         <img
           src={FLAG_ICONS[locale]}
           alt=""
-          className="h-[18px] w-6 shrink-0 rounded object-cover"
+          className={`shrink-0 rounded object-cover ${compact ? "h-6 w-8" : "h-[18px] w-6"}`}
         />
-        <span className="font-semibold text-sm text-black">{t(locale)}</span>
+        {!compact && <span className="font-semibold text-sm text-black">{t(locale)}</span>}
         <img
           src="/icons/arrow-up.svg"
           alt=""
-          className={`size-2.5 shrink-0 transition-transform ${open ? "" : "rotate-180"}`}
+          className={`shrink-0 transition-transform ${open ? "" : "rotate-180"} ${compact ? "size-3" : "size-2.5"}`}
         />
       </button>
       {open && (

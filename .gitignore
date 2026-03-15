@@ -5,6 +5,8 @@ Thumbs.db
 # Design assets (keep locally, not in git)
 public/
 nanobanana-output/
+# But do track frontend static assets
+!frontend/public/
 
 # MCP config (contains tokens)
 .mcp.json

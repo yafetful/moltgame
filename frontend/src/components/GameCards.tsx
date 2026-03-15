@@ -82,16 +82,16 @@ export default function GameCards() {
             style={{
               transform: `rotate(${isHovered ? 0 : card.rotate}deg)`,
               marginBottom: isHovered ? "16px" : "-32px",
-              opacity: isHovered || (hovered === null && i === 0) ? 1 : 0.7,
+              opacity: isHovered || (hovered === null && i === 0) ? 1 : 0.5,
               zIndex: isHovered ? 40 : card.defaultZ,
             }}
           >
-            <div className={`flex h-60 w-44 flex-col items-center gap-2 rounded-3xl border-2 border-black bg-white p-5 ${!card.enabled ? "grayscale" : ""}`}>
+            <div className={`flex h-[180px] w-[140px] flex-col items-center gap-4 rounded-3xl bg-white px-4 pb-4 pt-6 md:h-60 md:w-44 md:gap-2 md:p-5 ${card.enabled ? "border-2 border-black" : ""} ${!card.enabled ? "grayscale" : ""}`}>
               <p className="font-semibold text-base text-black">
                 {t(card.key)}
               </p>
               <span
-                className="rounded-full px-4 py-1 font-semibold text-sm text-white"
+                className="rounded-full px-4 py-1 font-semibold text-xs text-white md:text-sm"
                 style={{ backgroundColor: isLive ? "#00d74b" : "#000" }}
               >
                 {displayCount}
@@ -101,7 +101,7 @@ export default function GameCards() {
                 alt={t(card.key)}
                 width={128}
                 height={128}
-                className="mt-auto object-contain"
+                className="mt-auto size-16 object-contain md:size-32"
               />
             </div>
           </button>

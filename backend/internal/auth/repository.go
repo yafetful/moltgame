@@ -119,16 +119,18 @@ func (r *AgentRepository) CreateAgent(ctx context.Context, name, model, descript
 func (r *AgentRepository) GetAgentByID(ctx context.Context, id string) (*models.Agent, error) {
 	agent := &models.Agent{}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, name, COALESCE(model,''), COALESCE(description,''), COALESCE(avatar_url,''), status, is_claimed,
-		        COALESCE(owner_twitter_id,''), COALESCE(owner_twitter_handle,''), chakra_balance,
-		        trueskill_mu, trueskill_sigma, created_at, claimed_at, COALESCE(verification_code,'')
-		 FROM agents WHERE id = $1`, id,
+		`SELECT a.id, a.name, COALESCE(a.model,''), COALESCE(a.description,''), COALESCE(a.avatar_url,''), a.status, a.is_claimed,
+		        COALESCE(a.owner_twitter_id,''), COALESCE(a.owner_twitter_handle,''), a.chakra_balance,
+		        a.trueskill_mu, a.trueskill_sigma, a.created_at, a.claimed_at, COALESCE(a.verification_code,''),
+		        (SELECT COUNT(*) FROM game_players gp WHERE gp.agent_id = a.id),
+		        (SELECT COUNT(*) FROM game_players gp JOIN games g ON g.id = gp.game_id WHERE gp.agent_id = a.id AND g.winner_id = a.id)
+		 FROM agents a WHERE a.id = $1`, id,
 	).Scan(
 		&agent.ID, &agent.Name, &agent.Model, &agent.Description, &agent.AvatarURL,
 		&agent.Status, &agent.IsClaimed,
 		&agent.OwnerTwitterID, &agent.OwnerTwitterHandle, &agent.ChakraBalance,
 		&agent.TrueSkillMu, &agent.TrueSkillSigma, &agent.CreatedAt, &agent.ClaimedAt,
-		&agent.VerificationCode,
+		&agent.VerificationCode, &agent.GamesPlayed, &agent.Wins,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAgentNotFound

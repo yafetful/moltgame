@@ -61,6 +61,8 @@ interface ChromaKeyVideoProps {
   smoothness?: number;
   /** Spill suppression strength (0-1). Default: 0.1 */
   spill?: number;
+  /** Called once when video is ready and WebGL is initialized */
+  onCanPlay?: () => void;
 }
 
 function compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
@@ -82,6 +84,7 @@ export default function ChromaKeyVideo({
   similarity = 0.2,
   smoothness = 0.08,
   spill = 0.1,
+  onCanPlay,
 }: ChromaKeyVideoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -192,6 +195,7 @@ export default function ChromaKeyVideo({
       canvas!.height = video!.videoHeight || 720;
       initGL();
       rafRef.current = requestAnimationFrame(renderFrame);
+      onCanPlay?.();
     }
 
     // Handle both: video already loaded (readyState >= 2) OR not yet loaded

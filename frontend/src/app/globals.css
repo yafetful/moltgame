@@ -4,6 +4,12 @@
   --font-sans: "Libre Franklin", ui-sans-serif, system-ui, sans-serif;
 }
 
+@layer base {
+  button, a, label, [role="button"] {
+    cursor: pointer;
+  }
+}
+
 @keyframes winner-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.15); }

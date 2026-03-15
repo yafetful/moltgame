@@ -246,6 +246,29 @@ func (h *GameProxyHandler) ListLiveGames(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Cross-check with DB: filter out rooms whose game is no longer 'playing'.
+	// The engine keeps rooms in memory until explicitly cleaned up, so stale
+	// ghost rooms can linger after a game ends.
+	if len(resp.Games) > 0 {
+		dbGames, dbErr := h.gameRepo.ListLiveGames(r.Context(), 50)
+		if dbErr == nil {
+			activeIDs := make(map[string]bool, len(dbGames))
+			for _, g := range dbGames {
+				activeIDs[g.ID] = true
+			}
+			filtered := resp.Games[:0]
+			for _, g := range resp.Games {
+				if activeIDs[g.GameID] {
+					filtered = append(filtered, g)
+				}
+			}
+			resp.Games = filtered
+		}
+	}
+
+	if resp.Games == nil {
+		resp.Games = []natsClient.LiveGameInfo{}
+	}
 	httputil.JSON(w, http.StatusOK, resp.Games)
 }
 
