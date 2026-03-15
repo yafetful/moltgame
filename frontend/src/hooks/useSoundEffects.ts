@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState } from "react";
 
 export type SoundName =
   | "fold"
@@ -31,9 +31,13 @@ const SOUND_PATHS: Record<SoundName, string> = {
 
 export function useSoundEffects() {
   const audioCache = useRef<Map<SoundName, HTMLAudioElement>>(new Map());
+  const [muted, setMuted] = useState(false);
+
+  const toggleMute = useCallback(() => setMuted((m) => !m), []);
 
   const play = useCallback((name: SoundName, volume = 1.0) => {
     if (typeof window === "undefined") return;
+    if (muted) return;
     try {
       let audio = audioCache.current.get(name);
       if (!audio) {
@@ -49,7 +53,7 @@ export function useSoundEffects() {
     } catch {
       // Ignore any audio errors
     }
-  }, []);
+  }, [muted]);
 
   const playAction = useCallback(
     (actionType: string) => {
@@ -66,5 +70,5 @@ export function useSoundEffects() {
     [play],
   );
 
-  return { play, playAction };
+  return { play, playAction, muted, toggleMute };
 }

@@ -185,10 +185,8 @@ export default function GameLobby() {
         {/* === Mobile sub-header === */}
         <div className="flex items-center justify-between px-4 py-4 md:hidden">
           {/* Left: back arrow + icon + title */}
-          <div className="flex items-center gap-1">
-            <Link href="/lobby" className="flex items-center text-black">
-              <img src="/icons/arrow-up.svg" alt="" className="size-4 -rotate-90" />
-            </Link>
+          <Link href="/lobby" className="flex items-center gap-1 text-black">
+            <img src="/icons/arrow-up.svg" alt="" className="size-4 -rotate-90" />
             <Image
               src={config.icon}
               alt={t(config.titleKey)}
@@ -197,7 +195,7 @@ export default function GameLobby() {
               className="size-8 object-contain"
             />
             <h1 className="font-medium text-base text-black">{t(config.titleKey)}</h1>
-          </div>
+          </Link>
 
           {/* Right: Live / Replay tabs */}
           <div className="flex items-center gap-2">

@@ -380,8 +380,8 @@ function MobilePlayerSeat({
       <div className="relative size-12 shrink-0">
         <svg
           className="absolute inset-0 z-10 -rotate-90"
-          width={48}
-          height={48}
+          width="100%"
+          height="100%"
           viewBox="0 0 48 48"
         >
           <circle
@@ -460,7 +460,7 @@ export default function GamePage() {
   const t = useTranslations("game");
   const params = useParams();
   const gameId = params.id as string;
-  const { play, playAction } = useSoundEffects();
+  const { play, playAction, muted, toggleMute } = useSoundEffects();
 
   // Shared
   const [error, setError] = useState<string | null>(null);
@@ -822,15 +822,23 @@ export default function GamePage() {
         {/* Mobile header */}
         <div className="flex h-16 shrink-0 items-center justify-between bg-[#e8f5e9] px-4">
           {/* Left: back + icon + game ID */}
-          <div className="flex items-center gap-1">
-            <Link href="/lobby/poker" className="flex items-center text-black">
-              <img src="/icons/arrow-up.svg" alt="" className="size-4 -rotate-90" />
-            </Link>
+          <Link href="/lobby/poker" className="flex items-center gap-1 text-black">
+            <img src="/icons/arrow-up.svg" alt="" className="size-4 -rotate-90" />
             <Image src="/icons/poker.png" alt="Poker" width={32} height={32} className="size-8 object-contain" />
             <span className="text-base font-medium text-black">#{gameId.slice(0, 8)}</span>
-          </div>
+          </Link>
 
-          {/* Right: Live/Replay indicator */}
+          {/* Right: mute + Live/Replay indicator */}
+          <div className="flex items-center gap-1">
+            <button onClick={toggleMute} className="flex size-8 items-center justify-center rounded-full text-black/60 hover:bg-black/10">
+              <span className="inline-block size-5 shrink-0 bg-black/60" style={{
+                maskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
+                maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center",
+                WebkitMaskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
+                WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center",
+              }} />
+            </button>
+          </div>
           <div className="flex items-center">
             {isReplay ? (
               <span className="rounded-full bg-black/10 px-3 py-1 text-xs font-semibold text-black/60">
@@ -1025,9 +1033,9 @@ export default function GamePage() {
         </div>{/* end zoom wrapper */}
         </div>{/* end canvas area */}
 
-        {/* Bottom: replay controls (with 64px safe area) or plain safe area */}
+        {/* Bottom: replay controls */}
         {isReplay && frames.length > 0 ? (
-          <div className="shrink-0 bg-[#e8f5e9]/90 px-4 pb-16 pt-2 backdrop-blur">
+          <div className="shrink-0 bg-[#e8f5e9]/90 px-4 pb-2 pt-2 backdrop-blur">
             <ReplayControls
               frameIdx={frameIdx}
               totalFrames={frames.length}
@@ -1038,7 +1046,7 @@ export default function GamePage() {
             />
           </div>
         ) : (
-          <div className="h-16 shrink-0" />
+          <div className="h-4 shrink-0" />
         )}
       </div>
 
@@ -1075,6 +1083,14 @@ export default function GamePage() {
                 </span>
               </>
             )}
+            <button onClick={toggleMute} className="flex size-8 items-center justify-center rounded-full text-black/40 hover:bg-black/10" title={muted ? "Unmute" : "Mute"}>
+              <span className="inline-block size-5 shrink-0 bg-black/50" style={{
+                maskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
+                maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center",
+                WebkitMaskImage: muted ? "url(/icons/mute.svg)" : "url(/icons/sound.svg)",
+                WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center",
+              }} />
+            </button>
           </div>
         </div>
 

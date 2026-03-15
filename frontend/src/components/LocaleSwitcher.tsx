@@ -53,7 +53,7 @@ export default function LocaleSwitcher({ compact = false }: { compact?: boolean 
         />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-2 flex flex-col gap-3 rounded-xl border-2 border-black bg-[#fff2eb] p-3">
+        <div className="absolute right-0 top-full mt-2 z-[200] flex flex-col gap-3 rounded-xl border-2 border-black bg-[#fff2eb] p-3 shadow-lg">
           {locales.map((l) => (
             <button
               key={l}
