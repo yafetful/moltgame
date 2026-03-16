@@ -843,15 +843,6 @@ export default function GamePage() {
                   />
                   <span className="text-xs font-medium text-black">{mobileTime}</span>
                 </div>
-                {currentState && currentState.action_on >= 0 && (
-                  <div className="flex items-center gap-1 px-2 py-1">
-                    <span
-                      className="inline-block size-6 shrink-0 bg-black"
-                      style={{ maskImage: "url(/icons/history.svg)", maskSize: "contain", maskRepeat: "no-repeat", maskPosition: "center", WebkitMaskImage: "url(/icons/history.svg)", WebkitMaskSize: "contain", WebkitMaskRepeat: "no-repeat", WebkitMaskPosition: "center" }}
-                    />
-                    <span className="text-xs font-medium text-black">Decision</span>
-                  </div>
-                )}
               </>
             )}
             <button onClick={toggleMute} className="flex size-8 items-center justify-center rounded-full hover:bg-black/10">

@@ -218,18 +218,21 @@ type RecentGame struct {
 	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
 }
 
-// ListRecentGames returns recently finished games.
+// ListRecentGames returns recently finished games. Pass 0 for no limit.
 func (r *Repository) ListRecentGames(ctx context.Context, limit int) ([]RecentGame, error) {
-	rows, err := r.db.Query(ctx,
-		`SELECT g.id, g.type, g.player_count, g.winner_id, g.finished_at,
+	query := `SELECT g.id, g.type, g.player_count, g.winner_id, g.finished_at,
 		        a.name AS winner_name
 		 FROM games g
 		 LEFT JOIN agents a ON a.id = g.winner_id
 		 WHERE g.status = 'finished'
-		 ORDER BY g.finished_at DESC NULLS LAST
-		 LIMIT $1`,
-		limit,
-	)
+		 ORDER BY g.finished_at DESC NULLS LAST`
+	var rows pgx.Rows
+	var err error
+	if limit > 0 {
+		rows, err = r.db.Query(ctx, query+" LIMIT $1", limit)
+	} else {
+		rows, err = r.db.Query(ctx, query)
+	}
 	if err != nil {
 		return nil, err
 	}

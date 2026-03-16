@@ -289,7 +289,7 @@ func (h *GameProxyHandler) GetGameHistory(w http.ResponseWriter, r *http.Request
 // ListRecentGames returns recently finished games (direct DB query).
 // GET /api/v1/games/recent
 func (h *GameProxyHandler) ListRecentGames(w http.ResponseWriter, r *http.Request) {
-	games, err := h.gameRepo.ListRecentGames(r.Context(), 20)
+	games, err := h.gameRepo.ListRecentGames(r.Context(), 0)
 	if err != nil {
 		httputil.Error(w, http.StatusInternalServerError, "query_failed", "Failed to list recent games")
 		return
