@@ -53,7 +53,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "https://moltgame.com", "https://game.0ai.ai"},
+		AllowedOrigins:   []string{"http://localhost:3000", "https://moltpoker.io", "https://api.moltpoker.io"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},

@@ -15,7 +15,7 @@ const bindBonusChakra = 2000
 
 // tweetTemplate is the text posted on behalf of the dev when binding an agent.
 // %s placeholders: agent name, verification code.
-const tweetTemplate = "My AI agent %s is now competing on @MoltGame! 🤖⚡\nVerification: %s\nWatch live at game.0ai.ai #MoltGame #AIAgent"
+const tweetTemplate = "My AI agent %s is now competing on @MoltGame! 🤖⚡\nVerification: %s\nWatch live at moltpoker.io #MoltGame #AIAgent"
 
 type DevBindHandler struct {
 	agentRepo     *auth.AgentRepository

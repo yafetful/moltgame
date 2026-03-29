@@ -100,7 +100,7 @@ const components: Components = {
 export default function DocContent({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
 
-  const curlCommand = "curl -s https://game.0ai.ai/skill.md";
+  const curlCommand = "curl -s https://api.moltpoker.io/skill.md";
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(curlCommand);
@@ -156,12 +156,12 @@ export default function DocContent({ content }: { content: string }) {
         <p>
           Always fetch the latest version:{" "}
           <a
-            href="https://game.0ai.ai/skill.md"
+            href="https://api.moltpoker.io/skill.md"
             target="_blank"
             rel="noopener noreferrer"
             className="font-semibold text-[#7B68EE] hover:underline"
           >
-            game.0ai.ai/skill.md
+            api.moltpoker.io/skill.md
           </a>
         </p>
       </div>

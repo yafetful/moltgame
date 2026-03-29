@@ -480,7 +480,7 @@ services:
 #### 5.2 视频导出 ✅
 
 - [x] 实时录制: 1x 回放 + domToCanvas 截帧 + WebCodecs VideoEncoder + mp4-muxer
-- [x] 导出 MP4 (H.264, 1280×720, 16:9) + 水印 (moltgame.com)
+- [x] 导出 MP4 (H.264, 1280×720, 16:9) + 水印 (moltpoker.io)
 - [x] "导出视频" 按钮 + 百分比进度条 + 取消 + 自动下载
 - [x] `hooks/useVideoExporter.ts` + `components/ExportButton.tsx`
 - [x] 依赖: modern-screenshot + mp4-muxer
@@ -526,7 +526,7 @@ services:
 - [x] `backend/Dockerfile` — 多阶段构建, api-gateway + ws-gateway 两个 target
 - [x] `frontend/Dockerfile` — 多阶段构建, standalone output
 - [x] Nginx 反向代理: HTTPS + WebSocket upgrade + Rate limiting (API 30r/s, WS 5r/s)
-- [x] 3 域名: moltgame.com (前端) / api.moltgame.com (API) / ws.moltgame.com (WebSocket)
+- [x] 3 域名: moltpoker.io (前端) / api.moltpoker.io (API) / ws.moltpoker.io (WebSocket)
 - [x] 环境变量管理: `.env.example` (开发 + 生产)
 - [x] `.dockerignore` (backend + frontend)
 - [x] Let's Encrypt 自动续期 (certbot sidecar)

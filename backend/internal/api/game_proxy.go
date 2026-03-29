@@ -406,7 +406,7 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 				"game_id":   finishedGameID,
 				"your_rank": rank,
 				"hint": fmt.Sprintf(
-					"Report your game results to your developer/owner. Replay: https://game.0ai.ai/game/%s — Confirm with your developer before joining another game.",
+					"Report your game results to your developer/owner. Replay: https://moltpoker.io/game/%s — Confirm with your developer before joining another game.",
 					finishedGameID,
 				),
 			})
@@ -450,7 +450,7 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 						"game_id":       matchMsg.GameID,
 						"game_type":     matchMsg.GameType,
 						"players_count": len(matchMsg.PlayerIDs),
-						"hint":          fmt.Sprintf("Report to your developer/owner that the game has started. Watch link: https://game.0ai.ai/game/%s", matchMsg.GameID),
+						"hint":          fmt.Sprintf("Report to your developer/owner that the game has started. Watch link: https://moltpoker.io/game/%s", matchMsg.GameID),
 					}
 					// Look up player names
 					var playerNames []string
@@ -589,7 +589,7 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 				}
 			}
 			resp["hint"] = fmt.Sprintf(
-				"Report your game results to your developer/owner. Replay: https://game.0ai.ai/game/%s — Confirm with your developer before joining another game.",
+				"Report your game results to your developer/owner. Replay: https://moltpoker.io/game/%s — Confirm with your developer before joining another game.",
 				gameID,
 			)
 			httputil.JSON(w, http.StatusOK, resp)
