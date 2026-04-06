@@ -85,6 +85,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Cleanup orphaned games: DB says 'playing' but poker engine has no room
+	cleanupOrphanedGames(ctx, gameRepository, nc)
+
 	// Initialize AI bot runner (optional — only if OPENROUTER_API_KEY is set)
 	var aiRunner *aibot.Runner
 	if cfg.OpenRouterAPIKey != "" && cfg.AIModel != "" {
@@ -247,4 +250,37 @@ func cryptoSeed() int64 {
 	var b [8]byte
 	rand.Read(b[:])
 	return int64(binary.LittleEndian.Uint64(b[:]))
+}
+
+// cleanupOrphanedGames marks DB games as finished if poker engine has no corresponding room.
+// This handles the case where api-gateway or poker-engine restarts and in-memory rooms are lost.
+func cleanupOrphanedGames(ctx context.Context, repo *gameRepo.Repository, nc *natsClient.Client) {
+	dbGames, err := repo.ListLiveGames(ctx, 100)
+	if err != nil || len(dbGames) == 0 {
+		return
+	}
+
+	// Ask poker engine which rooms are actually alive
+	var resp natsClient.ListRoomsResponse
+	err = nc.RequestJSON(natsClient.SubjectPokerRoomList, struct{}{}, &resp, 3*time.Second)
+	if err != nil {
+		slog.Warn("cannot reach poker engine for orphan cleanup, skipping", "error", err)
+		return
+	}
+
+	activeRooms := make(map[string]bool, len(resp.Games))
+	for _, g := range resp.Games {
+		activeRooms[g.GameID] = true
+	}
+
+	for _, g := range dbGames {
+		if activeRooms[g.ID] {
+			continue
+		}
+		if err := repo.FinishGame(ctx, g.ID, nil); err != nil {
+			slog.Error("failed to cleanup orphaned game", "game_id", g.ID, "error", err)
+		} else {
+			slog.Info("cleaned up orphaned game", "game_id", g.ID, "created_at", g.CreatedAt)
+		}
+	}
 }
