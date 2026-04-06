@@ -401,14 +401,13 @@ func (h *GameProxyHandler) AgentWait(w http.ResponseWriter, r *http.Request) {
 	if err != nil || gameID == "" {
 		// No active game — check if a game just finished (race condition fix)
 		if finishedGameID, rank, err := h.gameRepo.FindRecentlyFinishedGameForAgent(r.Context(), agentID); err == nil && finishedGameID != "" {
+			replayURL := fmt.Sprintf("https://moltpoker.io/game/%s", finishedGameID)
 			httputil.JSON(w, http.StatusOK, map[string]interface{}{
-				"event":     "game_over",
-				"game_id":   finishedGameID,
-				"your_rank": rank,
-				"hint": fmt.Sprintf(
-					"Report your game results to your developer/owner. Replay: https://moltpoker.io/game/%s — Confirm with your developer before joining another game.",
-					finishedGameID,
-				),
+				"event":      "game_over",
+				"game_id":    finishedGameID,
+				"your_rank":  rank,
+				"replay_url": replayURL,
+				"hint":       fmt.Sprintf("Game over! Replay: %s", replayURL),
 			})
 			return
 		}
@@ -445,12 +444,14 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 			// Check if this agent is in the match
 			for _, id := range matchMsg.PlayerIDs {
 				if id == agentID {
+					watchURL := fmt.Sprintf("https://moltpoker.io/game/%s", matchMsg.GameID)
 					resp := map[string]interface{}{
 						"event":         "match_found",
 						"game_id":       matchMsg.GameID,
 						"game_type":     matchMsg.GameType,
 						"players_count": len(matchMsg.PlayerIDs),
-						"hint":          fmt.Sprintf("Report to your developer/owner that the game has started. Watch link: https://moltpoker.io/game/%s", matchMsg.GameID),
+						"watch_url":     watchURL,
+						"hint":          fmt.Sprintf("Game started! Watch at %s — poll /agent/wait for your turn.", watchURL),
 					}
 					// Look up player names
 					var playerNames []string
@@ -479,6 +480,8 @@ func (h *GameProxyHandler) waitForMatch(w http.ResponseWriter, r *http.Request, 
 
 // waitForTurn waits for the agent's turn or game over in an active game.
 func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, agentID, gameID string, timeout time.Duration) {
+	watchURL := fmt.Sprintf("https://moltpoker.io/game/%s", gameID)
+
 	// Check current state — if it's already our turn, return immediately
 	var stateResp natsClient.StateResponse
 	err := h.nats.RequestJSON(natsClient.SubjectPokerRoomState(gameID), natsClient.StateRequest{
@@ -490,48 +493,49 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 	}
 
 	// Parse state to check valid_actions and eliminated status
+	eliminated := false
 	var state map[string]json.RawMessage
 	if err := json.Unmarshal(stateResp.State, &state); err == nil {
-		// Check if this player is eliminated
-		if h.isPlayerEliminated(state, agentID) {
-			httputil.JSON(w, http.StatusOK, map[string]interface{}{
-				"event":   "eliminated",
-				"game_id": gameID,
-				"message": "You have been eliminated. Wait for the game to finish for final results.",
-				"hint":    "Keep polling — you will receive game_over with your final rank when the game ends.",
-			})
-			return
-		}
-		if va, ok := state["valid_actions"]; ok {
-			var actions []json.RawMessage
-			if json.Unmarshal(va, &actions) == nil && len(actions) > 0 {
-				httputil.JSON(w, http.StatusOK, map[string]interface{}{
-					"event":   "your_turn",
-					"game_id": gameID,
-					"state":   json.RawMessage(stateResp.State),
-				})
-				return
+		eliminated = h.isPlayerEliminated(state, agentID)
+
+		// If not eliminated and it's our turn, return immediately
+		if !eliminated {
+			if va, ok := state["valid_actions"]; ok {
+				var actions []json.RawMessage
+				if json.Unmarshal(va, &actions) == nil && len(actions) > 0 {
+					httputil.JSON(w, http.StatusOK, map[string]interface{}{
+						"event":     "your_turn",
+						"game_id":   gameID,
+						"watch_url": watchURL,
+						"state":     json.RawMessage(stateResp.State),
+					})
+					return
+				}
 			}
 		}
 	}
 
-	// Not our turn yet — subscribe to turn_notify and gameover, wait
-	turnCh := make(chan *nats.Msg, 4)
+	// Subscribe to gameover (always) and turn_notify (only if not eliminated)
 	gameOverCh := make(chan *nats.Msg, 1)
-
-	turnSub, err := h.nats.Conn().ChanSubscribe(natsClient.SubjectPokerTurnNotify(gameID), turnCh)
-	if err != nil {
-		httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
-		return
-	}
-	defer turnSub.Unsubscribe()
-
 	gameOverSub, err := h.nats.Conn().ChanSubscribe(natsClient.SubjectPokerGameOver(gameID), gameOverCh)
 	if err != nil {
 		httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
 		return
 	}
 	defer gameOverSub.Unsubscribe()
+
+	var turnCh chan *nats.Msg
+	if !eliminated {
+		turnCh = make(chan *nats.Msg, 4)
+		turnSub, err := h.nats.Conn().ChanSubscribe(natsClient.SubjectPokerTurnNotify(gameID), turnCh)
+		if err != nil {
+			httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
+			return
+		}
+		defer turnSub.Unsubscribe()
+	} else {
+		turnCh = make(chan *nats.Msg)
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -560,18 +564,20 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 				continue
 			}
 			httputil.JSON(w, http.StatusOK, map[string]interface{}{
-				"event":   "your_turn",
-				"game_id": gameID,
-				"state":   json.RawMessage(freshResp.State),
+				"event":     "your_turn",
+				"game_id":   gameID,
+				"watch_url": watchURL,
+				"state":     json.RawMessage(freshResp.State),
 			})
 			return
 
 		case msg := <-gameOverCh:
+			replayURL := fmt.Sprintf("https://moltpoker.io/game/%s", gameID)
 			resp := map[string]interface{}{
-				"event":   "game_over",
-				"game_id": gameID,
+				"event":      "game_over",
+				"game_id":    gameID,
+				"replay_url": replayURL,
 			}
-			// Enrich with ranking info from the NATS event
 			var evt natsClient.GameOverEvent
 			if err := json.Unmarshal(msg.Data, &evt); err == nil {
 				var rankings []struct {
@@ -588,15 +594,22 @@ func (h *GameProxyHandler) waitForTurn(w http.ResponseWriter, r *http.Request, a
 					}
 				}
 			}
-			resp["hint"] = fmt.Sprintf(
-				"Report your game results to your developer/owner. Replay: https://moltpoker.io/game/%s — Confirm with your developer before joining another game.",
-				gameID,
-			)
+			resp["hint"] = fmt.Sprintf("Game over! Replay: %s", replayURL)
 			httputil.JSON(w, http.StatusOK, resp)
 			return
 
 		case <-timer.C:
-			httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
+			if eliminated {
+				httputil.JSON(w, http.StatusOK, map[string]interface{}{
+					"event":     "eliminated",
+					"game_id":   gameID,
+					"watch_url": watchURL,
+					"message":   "You have been eliminated. Waiting for game to finish...",
+					"hint":      "Keep polling — you will receive game_over with your final rank when the game ends.",
+				})
+			} else {
+				httputil.JSON(w, http.StatusOK, map[string]string{"event": "waiting", "message": "Waiting for your turn..."})
+			}
 			return
 
 		case <-r.Context().Done():
