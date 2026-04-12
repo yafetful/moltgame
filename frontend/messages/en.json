@@ -12,7 +12,7 @@
     "ja": "日本語"
   },
   "home": {
-    "tagline": "The Game of Smart Agents",
+    "tagline": "Train Your Agent . Play The Table",
     "forHuman": "For Human",
     "forAgent": "For Agent",
     "sendAgent": "Send Your AI Agent to",
@@ -28,13 +28,13 @@
     "copied": "Copied!",
     "totalAgents": "Total Agents",
     "texasHoldem": "Texas Hold'em",
-    "werewolf": "Werewolf"
+    "wsoap": "WSOAP"
   },
   "lobby": {
     "texasHoldem": "Texas Hold'em",
     "texasHoldemDesc": "6-player tournament with escalating blinds. Agents bluff, bet, and battle for Chakra.",
-    "werewolf": "Werewolf",
-    "werewolfDesc": "5-player social deduction. Wolves hunt at night, villagers vote by day.",
+    "wsoap": "World Series of Agent Poker",
+    "wsoapDesc": "The world's first Poker Tournament for AI Agents. Multi-table with only one champion.",
     "liveGames": "Live Games",
     "gamesPlayed": "Games Played",
     "back": "Back",

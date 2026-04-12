@@ -18,12 +18,12 @@ const GAMES = [
     enabled: true,
   },
   {
-    key: "werewolf" as const,
-    descKey: "werewolfDesc" as const,
-    slug: "werewolf",
-    icon: "/icons/werewolves.png",
-    scene: "/images/scene-werewolf.png",
-    sceneMobile: "/images/scene-werewolf-square.png",
+    key: "wsoap" as const,
+    descKey: "wsoapDesc" as const,
+    slug: "wsoap",
+    icon: "/icons/wsoap.png",
+    scene: "/images/scene-poker.png",
+    sceneMobile: "/images/scene-poker-square.png",
     enabled: false,
   },
 ];

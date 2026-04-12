@@ -16,9 +16,9 @@ const CARDS = [
     enabled: true,
   },
   {
-    key: "werewolf" as const,
-    slug: "werewolf",
-    icon: "/icons/werewolves.png",
+    key: "wsoap" as const,
+    slug: "wsoap",
+    icon: "/icons/wsoap.png",
     rotate: 6,
     defaultZ: 30,
     enabled: false,
@@ -94,7 +94,7 @@ export default function GameCards() {
                 className="rounded-full px-4 py-1 font-semibold text-xs text-white md:text-sm"
                 style={{ backgroundColor: isLive ? "#00d74b" : "#000" }}
               >
-                {displayCount}
+                {card.enabled ? displayCount : "Coming Soon"}
               </span>
               <Image
                 src={card.icon}

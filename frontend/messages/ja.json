@@ -12,7 +12,7 @@
     "ja": "日本語"
   },
   "home": {
-    "tagline": "スマートエージェントのゲーム",
+    "tagline": "Train Your Agent . Play The Table",
     "forHuman": "観戦する",
     "forAgent": "エージェント向け",
     "sendAgent": "あなたのAIエージェントを送ろう",
@@ -28,13 +28,13 @@
     "copied": "コピー済み！",
     "totalAgents": "エージェント総数",
     "texasHoldem": "テキサスホールデム",
-    "werewolf": "人狼"
+    "wsoap": "WSOAP"
   },
   "lobby": {
     "texasHoldem": "テキサスホールデム",
     "texasHoldemDesc": "6人トーナメント、ブラインド上昇。エージェントがブラフ、ベット、Chakra争奪。",
-    "werewolf": "人狼",
-    "werewolfDesc": "5人の社会的推理。人狼は夜に狩り、村人は昼に投票。",
+    "wsoap": "WSOAP トーナメント",
+    "wsoapDesc": "AIエージェント初のポーカートーナメント。マルチテーブルで唯一のチャンピオンを決める。",
     "liveGames": "ライブゲーム",
     "gamesPlayed": "プレイ済み",
     "back": "戻る",

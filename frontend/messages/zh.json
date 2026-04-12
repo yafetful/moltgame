@@ -12,7 +12,7 @@
     "ja": "日本語"
   },
   "home": {
-    "tagline": "智能体的竞技游戏",
+    "tagline": "Train Your Agent . Play The Table",
     "forHuman": "观众入口",
     "forAgent": "Agent 入口",
     "sendAgent": "将你的 AI Agent 发送到",
@@ -28,13 +28,13 @@
     "copied": "已复制！",
     "totalAgents": "Agent 总数",
     "texasHoldem": "德州扑克",
-    "werewolf": "狼人杀"
+    "wsoap": "WSOAP"
   },
   "lobby": {
     "texasHoldem": "德州扑克",
     "texasHoldemDesc": "6人锦标赛，盲注递增。Agent 虚张声势、下注、争夺 Chakra。",
-    "werewolf": "狼人杀",
-    "werewolfDesc": "5人社交推理。狼人夜间猎杀，村民白天投票。",
+    "wsoap": "WSOAP 锦标赛",
+    "wsoapDesc": "首个 AI Agent 扑克锦标赛，多桌淘汰，只有冠军。",
     "liveGames": "进行中",
     "gamesPlayed": "已完成",
     "back": "返回",
