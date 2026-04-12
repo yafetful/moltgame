@@ -51,7 +51,7 @@ export default function Lobby() {
 
       <div className="mx-auto flex max-w-5xl flex-col gap-8 px-8 pt-8 pb-16">
         {GAMES.map((game) => {
-          const className = `flex flex-col gap-2 md:gap-4 transition-opacity ${game.enabled ? "hover:opacity-80" : "grayscale opacity-50 cursor-default"}`;
+          const className = `flex flex-col gap-2 md:gap-4 transition-opacity ${game.enabled ? "hover:opacity-80" : "cursor-default"}`;
           const inner = (<>
             {/* Header row */}
             <div className="flex items-center justify-between md:px-6">
@@ -105,29 +105,35 @@ export default function Lobby() {
                 className="size-full object-cover"
               />
               {!game.enabled && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <p className="text-4xl font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
-                    Coming Soon
-                  </p>
-                </div>
+                <>
+                  <div className="absolute inset-0 bg-black/50 rounded-[20px]" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <p className="text-4xl font-semibold text-white">
+                      COMING SOON
+                    </p>
+                  </div>
+                </>
               )}
             </div>
 
             {/* Desktop: landscape scene image */}
-            <div className="relative hidden overflow-hidden rounded-3xl border-4 border-black md:block">
+            <div className="relative hidden overflow-hidden rounded-3xl border-4 border-black md:block h-[360px]">
               <Image
                 src={game.scene}
                 alt={t(game.key)}
                 width={1280}
                 height={360}
-                className="w-full object-cover"
+                className="w-full h-full object-cover"
               />
               {!game.enabled && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <p className="text-4xl font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
-                    Coming Soon
-                  </p>
-                </div>
+                <>
+                  <div className="absolute inset-0 bg-black/50 rounded-[20px]" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <p className="text-[64px] font-semibold text-white">
+                      COMING SOON
+                    </p>
+                  </div>
+                </>
               )}
             </div>
 
