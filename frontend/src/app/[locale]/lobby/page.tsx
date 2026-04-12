@@ -22,8 +22,8 @@ const GAMES = [
     descKey: "wsoapDesc" as const,
     slug: "wsoap",
     icon: "/icons/wsoap.png",
-    scene: "/images/scene-poker.png",
-    sceneMobile: "/images/scene-poker-square.png",
+    scene: "/images/scene-wsoap.png",
+    sceneMobile: "/images/scene-wsoap.png",
     enabled: false,
   },
 ];
